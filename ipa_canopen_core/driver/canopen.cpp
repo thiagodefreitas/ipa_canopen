@@ -58,6 +58,8 @@
  ****************************************************************/
 
 #include "canopen.h"
+#include <iomanip>
+
 
 namespace canopen{
 
@@ -74,6 +76,11 @@ namespace canopen{
     std::map<uint16_t, std::function<void (const TPCANRdMsg m)> > incomingPDOHandlers;
     std::map<uint16_t, std::function<void (const TPCANRdMsg m)> > incomingEMCYHandlers;
     bool recover_active;
+
+    std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
+
+    std::chrono::duration<double> elapsed_seconds;
+
 
     /***************************************************************/
     //		define init and recover sequence
@@ -507,13 +514,23 @@ namespace canopen{
                 canopen::sendSync();
                 std::this_thread::sleep_for(syncInterval - (std::chrono::high_resolution_clock::now() - tic ));
             }
-
         }
     }
 
     std::function< void (uint16_t CANid, double positionValue) > sendPos;
 
-    void defaultPDOOutgoing(uint16_t CANid, double positionValue) {
+    void defaultPDOOutgoing(uint16_t CANid, double positionValue)
+    {
+        uint16_t canid = 3;
+
+//        if(CANid == canid)
+//        {
+//            end = std::chrono::high_resolution_clock::now();
+//            std::chrono::duration<double> elapsed_seconds = end-start;
+
+//            std::cout <<  elapsed_seconds.count() << std::endl;
+//        }
+
         static const uint16_t myControlword = (CONTROLWORD_ENABLE_OPERATION | CONTROLWORD_ENABLE_IP_MODE);
         TPCANMsg msg;
         msg.ID = 0x200 + CANid;
@@ -529,6 +546,8 @@ namespace canopen{
         msg.DATA[6] = (mdegPos >> 16) & 0xFF;
         msg.DATA[7] = (mdegPos >> 24) & 0xFF;
         CAN_Write(h, &msg);
+//        if(CANid == canid)
+//            start = std::chrono::high_resolution_clock::now();
     }
 
     void defaultEMCY_incoming(uint16_t CANid, const TPCANRdMsg m) {
@@ -543,6 +562,17 @@ namespace canopen{
     }
 
     void defaultPDO_incoming(uint16_t CANid, const TPCANRdMsg m) {
+        uint16_t canid = 3;
+
+
+                if(CANid == canid)
+                {
+                    end = std::chrono::high_resolution_clock::now();
+                    std::chrono::duration<double> elapsed_seconds = end-start;
+
+                    std::cout <<  elapsed_seconds.count() << std::endl;
+                }
+
         double newPos = mdeg2rad(m.Msg.DATA[4] + (m.Msg.DATA[5] << 8) + (m.Msg.DATA[6] << 16) + (m.Msg.DATA[7] << 24) );
 
         if (devices[CANid].getTimeStamp_msec() != std::chrono::milliseconds(0) || devices[CANid].getTimeStamp_usec() != std::chrono::microseconds(0)) {
@@ -651,7 +681,8 @@ namespace canopen{
 
        // std::cout << "Motor State of Device with CANid " << (uint16_t)CANid << " is: " << devices[CANid].getMotorState() << std::endl;
 
-
+                if(CANid == canid)
+                    start = std::chrono::high_resolution_clock::now();
     }
 
     /***************************************************************/
@@ -667,6 +698,7 @@ namespace canopen{
 
     void defaultListener(){
         while(true){
+
             //std::cout << "Reading incoming data" << std::endl;
             TPCANRdMsg m;
             errno = LINUX_CAN_Read(h, &m);
@@ -720,6 +752,7 @@ namespace canopen{
             else{
                  std::cout << "Received unknown message" << std::endl;
             }
+
         }
     }
 

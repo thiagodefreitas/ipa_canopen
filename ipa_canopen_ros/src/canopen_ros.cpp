@@ -388,6 +388,8 @@ int main(int argc, char **argv)
     ros::Publisher jointStatesPublisher = n.advertise<sensor_msgs::JointState>("/joint_states", 1);
     ros::Publisher diagnosticsPublisher = n.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 1);
 
+    double lr = 1000.0 / std::chrono::duration_cast<std::chrono::milliseconds>(canopen::syncInterval).count();
+
     for (auto it : canopen::deviceGroups)
     {
         ROS_INFO("Configuring %s", it.first.c_str());
@@ -407,7 +409,6 @@ int main(int argc, char **argv)
         statePublishers[it.first] = n.advertise<pr2_controllers_msgs::JointTrajectoryControllerState>("/" + it.first + "/state", 1);
     }
 
-    double lr = 1000.0 / std::chrono::duration_cast<std::chrono::milliseconds>(canopen::syncInterval).count();
 
     ros::Rate loop_rate(lr);
 
