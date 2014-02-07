@@ -10,7 +10,7 @@
  *****************************************************************
  *
  * \note
- *   Project name: ipa_canopen
+ *   Project name: ipa_canopen 
  * \note
  *   ROS stack name: ipa_canopen
  * \note
@@ -56,6 +56,7 @@
  * If not, see <http://www.gnu.org/licenses/>.
  *
  ****************************************************************/
+// Including Header Files
 
 #include "ros/ros.h"
 #include <urdf/model.h>
