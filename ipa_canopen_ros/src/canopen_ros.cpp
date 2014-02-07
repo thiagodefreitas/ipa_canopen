@@ -56,7 +56,7 @@
  * If not, see <http://www.gnu.org/licenses/>.
  *
  ****************************************************************/
-// Including Header Files
+// Including Required Header Files 
 
 #include "ros/ros.h"
 #include <urdf/model.h>
