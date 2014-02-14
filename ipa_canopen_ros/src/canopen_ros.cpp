@@ -212,9 +212,13 @@ void setVel(const brics_actuator::JointVelocities &msg, std::string chainName)
     }
 }
 
+// Function to read from Parameter Server
+
 void readParamsFromParameterServer(ros::NodeHandle n)
 {
     XmlRpc::XmlRpcValue busParams;
+    
+    //Checking for Parameters on the Parameter Server 
 
     if (!n.hasParam("devices") || !n.hasParam("chains"))
     {
@@ -223,6 +227,8 @@ void readParamsFromParameterServer(ros::NodeHandle n)
         n.shutdown();
     }
 
+    //Getting the BaudRate and the SyncInterval for all devices
+    
     n.getParam("devices", busParams);
     for (int i=0; i<busParams.size(); i++)
     {
@@ -232,7 +238,9 @@ void readParamsFromParameterServer(ros::NodeHandle n)
         busParam.syncInterval = static_cast<int>(busParams[i]["sync_interval"]);
         buses[name] = busParam;
     }
-
+    
+    //Get the chainnames and the corresponding jointnames, moduleIDs and devices in the chain
+    
     XmlRpc::XmlRpcValue chainNames_XMLRPC;
     n.getParam("chains", chainNames_XMLRPC);
 
@@ -359,19 +367,29 @@ int main(int argc, char **argv)
 {
     // todo: allow identical module IDs of modules when they are on different CAN buses
 
-
+    //Calling the ros_init() function to perform ROS arguments and name remapping provided at command line and canopen_ros is the name of the node
     ros::init(argc, argv, "canopen_ros");
+    
+    //NodeHAndle is the main point of communication with the ROS system
     ros::NodeHandle n(""); // ("~");
-
+    
+    //Read parameters from the Parameter Server
+    
     readParamsFromParameterServer(n);
-
+    
+    
     std::cout << "Sync Interval" << buses.begin()->second.syncInterval << std::endl;
     canopen::syncInterval = std::chrono::milliseconds( buses.begin()->second.syncInterval );
     // ^ todo: this only works with a single CAN bus; add support for more buses!
+    
+    //Fetching the name of the device
+    
     deviceFile = buses.begin()->first;
     std::cout << "Opening device..." << deviceFile << std::endl;
     // ^ todo: this only works with a single CAN bus; add support for more buses!
-
+    
+    //Opening the CAN device
+    
     if (!canopen::openConnection(deviceFile))
     {
         ROS_ERROR("Cannot open CAN device; aborting.");
@@ -387,13 +405,15 @@ int main(int argc, char **argv)
     /********************************************/
 
     // add custom PDOs:
+    
     canopen::sendPos = canopen::defaultPDOOutgoing;
     for (auto it : canopen::devices) {
         canopen::incomingPDOHandlers[ 0x180 + it.first ] = [it](const TPCANRdMsg m) { canopen::defaultPDO_incoming( it.first, m ); };
         canopen::incomingEMCYHandlers[ 0x081 + it.first ] = [it](const TPCANRdMsg mE) { canopen::defaultEMCY_incoming( it.first, mE ); };
     }
 
-    // set up services, subscribers, and publishers for each of the chains:
+    // set up services, subscribers, and publishers for each of the chains
+    
     std::vector<TriggerType> initCallbacks;
     std::vector<ros::ServiceServer> initServices;
     std::vector<TriggerType> recoverCallbacks;
