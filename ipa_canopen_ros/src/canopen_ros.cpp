@@ -102,7 +102,8 @@ bool CANopenInit(cob_srvs::Trigger::Request &req, cob_srvs::Trigger::Response &r
 
     for (auto device : canopen::devices)
     {
-
+	//How to send an SDO..?
+	
         canopen::sendSDO(device.second.getCANid(), canopen::MODES_OF_OPERATION, canopen::MODES_OF_OPERATION_INTERPOLATED_POSITION_MODE);
         std::cout << "Setting IP mode for: " << (uint16_t)device.second.getCANid() << std::endl;
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -243,29 +244,42 @@ void readParamsFromParameterServer(ros::NodeHandle n)
     
     XmlRpc::XmlRpcValue chainNames_XMLRPC;
     n.getParam("chains", chainNames_XMLRPC);
-
+    
+    //Get all the chain names and put it into the array chainNames
+    
     for (int i=0; i<chainNames_XMLRPC.size(); i++)
         chainNames.push_back(static_cast<std::string>(chainNames_XMLRPC[i]));
-
+    
+    //For each chainname, get the corresponding jointnames, moduleIDs and device name
+    
     for (auto chainName : chainNames) {
         XmlRpc::XmlRpcValue jointNames_XMLRPC;
         n.getParam("/" + chainName + "/joint_names", jointNames_XMLRPC);
-
+	
+	// Put the joint names in a chain to array JointNames
+	
         for (int i=0; i<jointNames_XMLRPC.size(); i++)
             jointNames.push_back(static_cast<std::string>(jointNames_XMLRPC[i]));
-
+	
+	// Put the modulesIDs in a chain to array moduleIDs
+	
         XmlRpc::XmlRpcValue moduleIDs_XMLRPC;
         n.getParam("/" + chainName + "/module_ids", moduleIDs_XMLRPC);
         std::vector<uint8_t> moduleIDs;
         for (int i=0; i<moduleIDs_XMLRPC.size(); i++)
             moduleIDs.push_back(static_cast<int>(moduleIDs_XMLRPC[i]));
-
+	
+	// Put the devices in a chain to array devices
+	
         XmlRpc::XmlRpcValue devices_XMLRPC;
         n.getParam("/" + chainName + "/devices", devices_XMLRPC);
         std::vector<std::string> devices;
         for (int i=0; i<devices_XMLRPC.size(); i++)
             devices.push_back(static_cast<std::string>(devices_XMLRPC[i]));
-
+	
+	//what is happening here..?
+	//Is it assignment of canopen devices with a specific module ID with its moduleID, jointname , chainname and device name.?
+	
         for (unsigned int i=0; i<jointNames.size(); i++)
             canopen::devices[ moduleIDs[i] ] = canopen::Device(moduleIDs[i], jointNames[i], chainName, devices[i]);
 
@@ -382,7 +396,7 @@ int main(int argc, char **argv)
     canopen::syncInterval = std::chrono::milliseconds( buses.begin()->second.syncInterval );
     // ^ todo: this only works with a single CAN bus; add support for more buses!
     
-    //Fetching the name of the device
+    //Fetching the baudrate of the device..?
     
     deviceFile = buses.begin()->first;
     std::cout << "Opening device..." << deviceFile << std::endl;
@@ -413,7 +427,7 @@ int main(int argc, char **argv)
     }
 
     // set up services, subscribers, and publishers for each of the chains
-    
+   
     std::vector<TriggerType> initCallbacks;
     std::vector<ros::ServiceServer> initServices;
     std::vector<TriggerType> recoverCallbacks;
@@ -432,14 +446,21 @@ int main(int argc, char **argv)
 
     for (auto it : canopen::deviceGroups)
     {
+    	//How does it refer to the chainname....?
+    	
         ROS_INFO("Configuring %s", it.first.c_str());
-
+	
+	//A number of times when CANopenInit() is called. Why is it it.first.?
+	
         initCallbacks.push_back( boost::bind(CANopenInit, _1, _2, it.first) );
         initServices.push_back( n.advertiseService("/" + it.first + "/init", initCallbacks.back()) );
         recoverCallbacks.push_back( boost::bind(CANopenRecover, _1, _2, it.first) );
         recoverServices.push_back( n.advertiseService("/" + it.first + "/recover", recoverCallbacks.back()) );
         stopCallbacks.push_back( boost::bind(CANOpenHalt, _1, _2, it.first) );
         stopServices.push_back( n.advertiseService("/" + it.first + "/halt", stopCallbacks.back()) );
+        
+        //setOperationModeCallback is a dummy function. Not yet implemented
+        
         setOperationModeCallbacks.push_back( boost::bind(setOperationModeCallback, _1, _2, it.first) );
         setOperationModeServices.push_back( n.advertiseService("/" + it.first + "/set_operation_mode", setOperationModeCallbacks.back()) );
 
@@ -452,7 +473,8 @@ int main(int argc, char **argv)
     }
 
     double lr = 1000.0 / std::chrono::duration_cast<std::chrono::milliseconds>(canopen::syncInterval).count();
-
+    
+    //Loops at 1000 Hz
     ros::Rate loop_rate(lr);
 
     setJointConstraints(n);
@@ -474,17 +496,27 @@ int main(int argc, char **argv)
             desired_positions.push_back(des_pos);
 	    counter++;
         }
-
+	
+	//Iterate over all chains
         for (auto dg : (canopen::deviceGroups))
         {
+        	
+            //Getting all the 4 attributes like name, position, velocit and effort
+            
             sensor_msgs::JointState js;
             js.name = dg.second.getNames();
+            
+            // What is this..?
+            
             js.header.stamp = ros::Time::now(); // todo: possibly better use timestamp of hardware msg?
 	    
             js.position = positions;//dg.second.getActualPos();
             //std::cout << "Position" << js.position[0] << std::endl;
             js.velocity = dg.second.getActualVel();
             js.effort = std::vector<double>(dg.second.getNames().size(), 0.0);
+            
+            //Publish the attributes as topics
+            
             jointStatesPublisher.publish(js);
 
             pr2_controllers_msgs::JointTrajectoryControllerState jtcs;
