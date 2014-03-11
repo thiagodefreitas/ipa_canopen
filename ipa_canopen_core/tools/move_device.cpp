@@ -94,7 +94,7 @@ int main(int argc, char *argv[]) {
     canopen::init(deviceFile, canopen::syncInterval);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    canopen::sendSync();
+    canopen::sendSync(deviceFile);
 
     if (accel != 0) {  // accel of 0 means "move at target vel immediately"
         std::chrono::milliseconds accelerationTime( static_cast<int>(round( 1000.0 * targetVel / accel)) );
@@ -109,7 +109,7 @@ int main(int argc, char *argv[]) {
             vel = accel * 0.000001 * std::chrono::duration_cast<std::chrono::microseconds>(tic-startTime).count();
             canopen::devices[ CANid ].setDesiredVel(vel);
             std::this_thread::sleep_for(canopen::syncInterval - (std::chrono::high_resolution_clock::now() - tic));
-            canopen::sendSync();
+            canopen::sendSync(deviceFile);
         }
     }
 
@@ -122,6 +122,6 @@ int main(int argc, char *argv[]) {
 
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
-        canopen::sendSync();
+        canopen::sendSync(deviceFile);
     }
 }

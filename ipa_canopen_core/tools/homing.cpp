@@ -79,9 +79,9 @@ int main(int argc, char *argv[]) {
     canopen::init(deviceFile, std::chrono::milliseconds(10));
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    canopen::sendSDO(CANid, canopen::MODES_OF_OPERATION, canopen::MODES_OF_OPERATION_HOMING_MODE);
+    canopen::sendSDO(CANid, canopen::MODES_OF_OPERATION, canopen::MODES_OF_OPERATION_HOMING_MODE, deviceFile);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    canopen::sendSDO(CANid, canopen::CONTROLWORD, (uint16_t) (canopen::CONTROLWORD_ENABLE_OPERATION | canopen::CONTROLWORD_START_HOMING));
+    canopen::sendSDO(CANid, canopen::CONTROLWORD, (uint16_t) (canopen::CONTROLWORD_ENABLE_OPERATION | canopen::CONTROLWORD_START_HOMING), deviceFile);
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     std::cout << "Homing complete" << std::endl;
 }

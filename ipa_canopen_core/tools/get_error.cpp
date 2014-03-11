@@ -101,7 +101,7 @@ int main(int argc, char *argv[])
 
     canopen::devices[ CANid ] = canopen::Device(CANid);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    canopen::sendNMT(CANid, canopen::NMT_START_REMOTE_NODE);
+    canopen::sendNMT(CANid, canopen::NMT_START_REMOTE_NODE, deviceFile);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -110,23 +110,23 @@ int main(int argc, char *argv[])
     std::shared_ptr<TPCANRdMsg> m;
 
 
-    canopen::readErrorsRegister(CANid, m);
+    canopen::readErrorsRegister(CANid, m, deviceFile);
 
     /***************************************************************/
     //		Manufacturer specific errors register
     /***************************************************************/
-    canopen::readManErrReg(CANid, m);
+    canopen::readManErrReg(CANid, m, deviceFile);
 
     /**************************
      * Hardware and Software Information
     *************************/
 
-    std::vector<uint16_t> vendor_id = canopen::obtainVendorID(CANid, m);
-    uint16_t rev_number = canopen::obtainRevNr(CANid, m);
-    std::vector<uint16_t> product_code = canopen::obtainProdCode(CANid, m);
-    std::vector<char> manufacturer_device_name = canopen::obtainManDevName(CANid,m);
-    std::vector<char> manufacturer_hw_version =  canopen::obtainManHWVersion(CANid, m);
-    std::vector<char> manufacturer_sw_version =  canopen::obtainManSWVersion(CANid, m);
+    std::vector<uint16_t> vendor_id = canopen::obtainVendorID(CANid, m, deviceFile);
+    uint16_t rev_number = canopen::obtainRevNr(CANid, m, deviceFile);
+    std::vector<uint16_t> product_code = canopen::obtainProdCode(CANid, m, deviceFile);
+    std::vector<char> manufacturer_device_name = canopen::obtainManDevName(CANid,m, deviceFile);
+    std::vector<char> manufacturer_hw_version =  canopen::obtainManHWVersion(CANid, m, deviceFile);
+    std::vector<char> manufacturer_sw_version =  canopen::obtainManSWVersion(CANid, m, deviceFile);
 
         /****
          *Printing the data

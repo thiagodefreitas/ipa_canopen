@@ -702,9 +702,9 @@ namespace canopen{
     bool recover(std::string deviceFile, std::chrono::milliseconds syncInterval);
     void halt(std::string deviceFile, std::chrono::milliseconds syncInterval);
 
-    extern std::function< void (uint16_t CANid, double positionValue) > sendPos;
-    extern std::function< void (uint16_t CANid, double positionValue, double velocityValue) > sendPosPPMode;
-    extern std::function< void (uint16_t CANid, double velocityValue) > sendVel;
+    extern std::function< void (uint16_t CANid, double positionValue, std::string devName) > sendPos;
+    extern std::function< void (uint16_t CANid, double positionValue, double velocityValue, std::string devName) > sendPosPPMode;
+    extern std::function< void (uint16_t CANid, double velocityValue, std::string devName) > sendVel;
     extern std::function< void (uint16_t CANid) > geterrors;
 
 

@@ -760,7 +760,7 @@ void deviceManager(std::string devName)
                 if (device.second.getInitialized())
                 {
                     devices[device.first].updateDesiredPos();
-                    sendPos((uint16_t)device.second.getCANid(), (double)device.second.getDesiredPos());
+                    sendPos((uint16_t)device.second.getCANid(), (double)device.second.getDesiredPos(), device.second.getDeviceFile());
                 }
             }
             canopen::sendSync(devName);
@@ -771,9 +771,9 @@ void deviceManager(std::string devName)
 }
 
 
-std::function< void (uint16_t CANid, double velocityValue) > sendVel;
-std::function< void (uint16_t CANid, double positionValue) > sendPos;
-std::function< void (uint16_t CANid, double positionValue, double velocityValue) > sendPosPPMode;
+std::function< void (uint16_t CANid, double velocityValue, std::string devName) > sendVel;
+std::function< void (uint16_t CANid, double positionValue, std::string devName) > sendPos;
+std::function< void (uint16_t CANid, double positionValue, double velocityValue, std::string devName) > sendPosPPMode;
 
 void defaultPDOOutgoing_interpolated(uint16_t CANid, double positionValue, std::string devName)
 {
