@@ -19,7 +19,7 @@
  * \author
  *   Author: Thiago de Freitas, Tobias Sing, Eduard Herkel
  * \author
- *   Supervised by: Thiago de Freitas email:tdf@ipa.fhg.de
+ *   Supervised by: Thiago de Freitas, Tobias Sing, Eduard Herkel email:tdf@ipa.fhg.de
  *
  * \date Date of creation: December 2012
  *
@@ -110,7 +110,7 @@ bool openConnection(std::string devName, std::string baudrate)
 
     chain_handlers[devName] = LINUX_CAN_Open(devName.c_str(), O_RDWR);
 
-    std::cout << "Opening connection to" << devName << std::endl;
+    std::cout << "Opening connection to " << devName << std::endl;
 
     if (!chain_handlers[devName])
 
@@ -145,26 +145,26 @@ void pre_init()
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
 
-        std::shared_ptr<TPCANRdMsg> m;
+       TPCANRdMsg m;
 
 
-        canopen::readErrorsRegister(dg.second.getCANid(), m, dg.second.getDeviceFile());
+        canopen::readErrorsRegister(dg.second.getCANid(), &m, dg.second.getDeviceFile());
 
         /***************************************************************/
         //		Manufacturer specific errors register
         /***************************************************************/
-        canopen::readManErrReg(dg.second.getCANid(), m, dg.second.getDeviceFile());
+        canopen::readManErrReg(dg.second.getCANid(), &m, dg.second.getDeviceFile());
 
         /**************************
        * Hardware and Software Information
       *************************/
 
-        std::vector<uint16_t> vendor_id = canopen::obtainVendorID(dg.second.getCANid(), m, dg.second.getDeviceFile());
-        uint16_t rev_number = canopen::obtainRevNr(dg.second.getCANid(), m, dg.second.getDeviceFile());
-        std::vector<uint16_t> product_code = canopen::obtainProdCode(dg.second.getCANid(), m, dg.second.getDeviceFile());
-        std::vector<char> manufacturer_device_name = canopen::obtainManDevName(dg.second.getCANid(),m, dg.second.getDeviceFile());
-        std::vector<char> manufacturer_hw_version =  canopen::obtainManHWVersion(dg.second.getCANid(), m, dg.second.getDeviceFile());
-        std::vector<char> manufacturer_sw_version =  canopen::obtainManSWVersion(dg.second.getCANid(), m, dg.second.getDeviceFile());
+        std::vector<uint16_t> vendor_id = canopen::obtainVendorID(dg.second.getCANid(), &m, dg.second.getDeviceFile());
+        uint16_t rev_number = canopen::obtainRevNr(dg.second.getCANid(), &m, dg.second.getDeviceFile());
+        std::vector<uint16_t> product_code = canopen::obtainProdCode(dg.second.getCANid(), &m, dg.second.getDeviceFile());
+        std::vector<char> manufacturer_device_name = canopen::obtainManDevName(dg.second.getCANid(),&m, dg.second.getDeviceFile());
+        std::vector<char> manufacturer_hw_version =  canopen::obtainManHWVersion(dg.second.getCANid(), &m, dg.second.getDeviceFile());
+        std::vector<char> manufacturer_sw_version =  canopen::obtainManSWVersion(dg.second.getCANid(), &m, dg.second.getDeviceFile());
 
 
         devices[dg.second.getCANid()].setManufacturerHWVersion(manufacturer_hw_version);
@@ -1174,7 +1174,7 @@ void errorword_incoming(uint8_t CANid, BYTE data[1])
 
 }
 
-void readManErrReg(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
+void readManErrReg(uint16_t CANid, TPCANRdMsg* m, std::string devName)
 {
 
     canopen::uploadSDO(CANid, canopen::MANUFACTURER, devName);
@@ -1200,7 +1200,7 @@ void readManErrReg(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string de
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 }
 
-void readErrorsRegister(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
+void readErrorsRegister(uint16_t CANid, TPCANRdMsg* m, std::string devName)
 {
     canopen::uploadSDO(CANid, canopen::STATUSWORD, devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -1234,7 +1234,7 @@ void readErrorsRegister(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::stri
     std::cout << "\n";
 }
 
-std::vector<uint16_t> obtainVendorID(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
+std::vector<uint16_t> obtainVendorID(uint16_t CANid, TPCANRdMsg* m, std::string devName)
 {
     canopen::uploadSDO(CANid, canopen::IDENTITYVENDORID, devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -1256,7 +1256,7 @@ std::vector<uint16_t> obtainVendorID(uint16_t CANid, std::shared_ptr<TPCANRdMsg>
     return vendor_id;
 }
 
-std::vector<uint16_t> obtainProdCode(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
+std::vector<uint16_t> obtainProdCode(uint16_t CANid, TPCANRdMsg *m, std::string devName)
 {
     canopen::uploadSDO(CANid, canopen::IDENTITYPRODUCTCODE, devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -1279,7 +1279,7 @@ std::vector<uint16_t> obtainProdCode(uint16_t CANid, std::shared_ptr<TPCANRdMsg>
 
 }
 
-uint16_t obtainRevNr(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
+uint16_t obtainRevNr(uint16_t CANid, TPCANRdMsg *m, std::string devName)
 {
     canopen::uploadSDO(CANid, canopen::IDENTITYREVNUMBER, devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -1293,7 +1293,7 @@ uint16_t obtainRevNr(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string 
 
 }
 
-std::vector<char> obtainManDevName(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
+std::vector<char> obtainManDevName(uint16_t CANid, TPCANRdMsg *m, std::string devName)
 {
     canopen::uploadSDO(CANid, canopen::MANUFACTURERDEVICENAME, devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -1336,7 +1336,7 @@ std::vector<char> obtainManDevName(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m
 
 
 
-std::vector<char> obtainManHWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
+std::vector<char> obtainManHWVersion(uint16_t CANid, TPCANRdMsg *m, std::string devName)
 {
     canopen::uploadSDO(CANid, canopen::MANUFACTURERHWVERSION,devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -1375,7 +1375,7 @@ std::vector<char> obtainManHWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg>
     return manufacturer_hw_version;
 }
 
-std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
+std::vector<char> obtainManSWVersion(uint16_t CANid, TPCANRdMsg *m, std::string devName)
 {
     std::vector<char> manufacturer_sw_version;
 
@@ -1534,13 +1534,13 @@ void statusword_incoming(uint8_t CANid, BYTE data[8])
     //std::cout << "Motor State of Device with CANid " << (uint16_t)CANid << " is: " << devices[CANid].getMotorState() << std::endl;
 }
 
-void processSingleSDO(uint8_t CANid, std::shared_ptr<TPCANRdMsg> message, std::string devName)
+void processSingleSDO(uint8_t CANid, TPCANRdMsg* message, std::string devName)
 {
     message->Msg.ID = 0x00;
 
     while (message->Msg.ID != (0x580+CANid))
     {
-        LINUX_CAN_Read(chain_handlers[devName], message.get());
+        LINUX_CAN_Read(chain_handlers[devName], message);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }

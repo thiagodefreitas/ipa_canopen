@@ -669,14 +669,14 @@ namespace canopen{
     void pdoChanged(std::string devName);
 
     void getErrors(uint16_t CANid, std::string devName);
-    std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
-    std::vector<char> obtainManHWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
-    std::vector<char> obtainManDevName(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
-    std::vector<uint16_t> obtainVendorID(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
-    uint16_t obtainRevNr(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
-    std::vector<uint16_t> obtainProdCode(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
-    void readErrorsRegister(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
-    void readManErrReg(uint16_t CANid, std::shared_ptr<TPCANRdMsg>  m, std::string devName);
+    std::vector<char> obtainManSWVersion(uint16_t CANid, TPCANRdMsg *m, std::string devName);
+    std::vector<char> obtainManHWVersion(uint16_t CANid, TPCANRdMsg *m, std::string devName);
+    std::vector<char> obtainManDevName(uint16_t CANid, TPCANRdMsg *m, std::string devName);
+    std::vector<uint16_t> obtainVendorID(uint16_t CANid, TPCANRdMsg *m, std::string devName);
+    uint16_t obtainRevNr(uint16_t CANid, TPCANRdMsg *m, std::string devName);
+    std::vector<uint16_t> obtainProdCode(uint16_t CANid, TPCANRdMsg *m, std::string devName);
+    void readErrorsRegister(uint16_t CANid, TPCANRdMsg *m, std::string devName);
+    void readManErrReg(uint16_t CANid, TPCANRdMsg *m, std::string devName);
 
 
     /***************************************************************/
@@ -926,7 +926,7 @@ namespace canopen{
 
     void uploadSDO(uint8_t CANid, SDOkey sdo, std::string devName);
     void controlPDO(uint8_t CANid, u_int16_t control1, u_int16_t control2, std::string devName);
-    void processSingleSDO(uint8_t CANid, std::shared_ptr<TPCANRdMsg> message, std::string devName);
+    void processSingleSDO(uint8_t CANid, TPCANRdMsg *message, std::string devName);
     void requestDataBlock1(uint8_t CANid, std::string devName);
     void requestDataBlock2(uint8_t CANid, std::string devName);
 
