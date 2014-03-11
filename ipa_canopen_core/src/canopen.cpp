@@ -60,6 +60,7 @@
 #include <ipa_canopen_core/canopen.h>
 #include <sstream>
 #include <cstring>
+#include <algorithm>
 
 namespace canopen
 {
@@ -72,7 +73,7 @@ std::chrono::milliseconds syncInterval;
 std::string baudRate;
 std::map<uint8_t, Device> devices;
 std::map<std::string, DeviceGroup> deviceGroups;
-HANDLE h;
+std::map<std::string, HANDLE> chain_handlers;
 std::map<SDOkey, std::function<void (uint8_t CANid, BYTE data[8])> > incomingDataHandlers { { STATUSWORD, statusword_incoming } };
 std::map<SDOkey, std::function<void (uint8_t CANid, BYTE data[8])> > incomingErrorHandlers { { ERRORWORD, errorword_incoming } };
 std::map<uint16_t, std::function<void (const TPCANRdMsg m)> > incomingPDOHandlers;
@@ -93,6 +94,11 @@ std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
 std::chrono::duration<double> elapsed_seconds;
 
 
+std::vector <std::thread> listener_threads;
+std::vector <std::thread> manager_threads;
+std::vector <std::string> open_devices;
+
+
 /***************************************************************/
 //		define init and recover sequence
 /***************************************************************/
@@ -101,11 +107,20 @@ bool atFirstInit = true;
 
 bool openConnection(std::string devName, std::string baudrate)
 {
-    h = LINUX_CAN_Open(devName.c_str(), O_RDWR);
-    if (!h)
+
+    chain_handlers[devName] = LINUX_CAN_Open(devName.c_str(), O_RDWR);
+
+    std::cout << "Opening connection to" << devName << std::endl;
+
+    if (!chain_handlers[devName])
+
         return false;
 
-    errno = CAN_Init(h, baudrates[baudrate], CAN_INIT_TYPE_ST);
+    errno = CAN_Init(chain_handlers[devName], baudrates[baudrate], CAN_INIT_TYPE_ST);
+
+    if (errno)
+
+        perror("LINUX_CAN_Read() error");
 
     return true;
 }
@@ -124,7 +139,7 @@ void pre_init()
     for (auto dg : (canopen::devices))
     {
         /*********************************************/
-        canopen::sendNMT(dg.second.getCANid(), canopen::NMT_START_REMOTE_NODE);
+        canopen::sendNMT(dg.second.getCANid(), canopen::NMT_START_REMOTE_NODE, dg.second.getDeviceFile());
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -133,23 +148,23 @@ void pre_init()
         std::shared_ptr<TPCANRdMsg> m;
 
 
-        canopen::readErrorsRegister(dg.second.getCANid(), m);
+        canopen::readErrorsRegister(dg.second.getCANid(), m, dg.second.getDeviceFile());
 
         /***************************************************************/
         //		Manufacturer specific errors register
         /***************************************************************/
-        canopen::readManErrReg(dg.second.getCANid(), m);
+        canopen::readManErrReg(dg.second.getCANid(), m, dg.second.getDeviceFile());
 
         /**************************
        * Hardware and Software Information
       *************************/
 
-        std::vector<uint16_t> vendor_id = canopen::obtainVendorID(dg.second.getCANid(), m);
-        uint16_t rev_number = canopen::obtainRevNr(dg.second.getCANid(), m);
-        std::vector<uint16_t> product_code = canopen::obtainProdCode(dg.second.getCANid(), m);
-        std::vector<char> manufacturer_device_name = canopen::obtainManDevName(dg.second.getCANid(),m);
-        std::vector<char> manufacturer_hw_version =  canopen::obtainManHWVersion(dg.second.getCANid(), m);
-        std::vector<char> manufacturer_sw_version =  canopen::obtainManSWVersion(dg.second.getCANid(), m);
+        std::vector<uint16_t> vendor_id = canopen::obtainVendorID(dg.second.getCANid(), m, dg.second.getDeviceFile());
+        uint16_t rev_number = canopen::obtainRevNr(dg.second.getCANid(), m, dg.second.getDeviceFile());
+        std::vector<uint16_t> product_code = canopen::obtainProdCode(dg.second.getCANid(), m, dg.second.getDeviceFile());
+        std::vector<char> manufacturer_device_name = canopen::obtainManDevName(dg.second.getCANid(),m, dg.second.getDeviceFile());
+        std::vector<char> manufacturer_hw_version =  canopen::obtainManHWVersion(dg.second.getCANid(), m, dg.second.getDeviceFile());
+        std::vector<char> manufacturer_sw_version =  canopen::obtainManSWVersion(dg.second.getCANid(), m, dg.second.getDeviceFile());
 
 
         devices[dg.second.getCANid()].setManufacturerHWVersion(manufacturer_hw_version);
@@ -166,7 +181,7 @@ bool init(std::string deviceFile, std::chrono::milliseconds syncInterval)
 
     if(atFirstInit)
     {
-        CAN_Close(h);
+        CAN_Close(chain_handlers[deviceFile]);
         
         bool connection_success;
         connection_success = canopen::openConnection(deviceFile, canopen::baudRate);
@@ -178,30 +193,44 @@ bool init(std::string deviceFile, std::chrono::milliseconds syncInterval)
         }
         else
         {
-                canopen::initListenerThread(canopen::defaultListener);
-                
-                std::cout << "Resetting devices " << std::endl;
-                canopen::sendNMT(0x00, canopen::NMT_RESET_NODE);
-                
-                for(auto device : devices)
+            //canopen::initListenerThread(canopen::defaultListener);
+            if (std::find(open_devices.begin(), open_devices.end(), deviceFile) == open_devices.end())
+            {
+                std::cout << "creating" << std::endl;
+                listener_threads.push_back(std::thread(defaultListener, deviceFile));
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+                open_devices.push_back(deviceFile);
+
+                for(auto& thread : listener_threads)
                 {
-                    bool nmt_init = devices[device.second.getCANid()].getNMTInit();
-                    std::cout << "Waiting for Node: " << (uint16_t)device.second.getCANid() << " to become available" << std::endl;
-                    
-                    while(!nmt_init)
-                    {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                        nmt_init = devices[device.second.getCANid()].getNMTInit();
-                    }
-                    std::cout << "Node: " << (uint16_t)device.second.getCANid() << " is now available" << std::endl;
+                    thread.detach();
                 }
-                
-                canopen::sendNMT(0x00, canopen::NMT_START_REMOTE_NODE);
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            }
+
+            std::cout << "Resetting devices " << std::endl;
+            canopen::sendNMT(0x00, canopen::NMT_RESET_NODE,deviceFile);
+
+            for(auto device : devices)
+            {
+                bool nmt_init = devices[device.second.getCANid()].getNMTInit();
+                std::cout << "Waiting for Node: " << (uint16_t)device.second.getCANid() << " to become available" << std::endl;
+
+                while(!nmt_init)
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    nmt_init = devices[device.second.getCANid()].getNMTInit();
+                }
+                std::cout << "Node: " << (uint16_t)device.second.getCANid() << " is now available" << std::endl;
+            }
+
+            canopen::sendNMT(0x00, canopen::NMT_START_REMOTE_NODE, deviceFile);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 
-     recover_active = false;
+    recover_active = false;
     for (auto device : devices)
     {
 
@@ -264,7 +293,7 @@ bool init(std::string deviceFile, std::chrono::milliseconds syncInterval)
         }
         else
         {
-            canopen::sendSDO(device.second.getCANid(), canopen::MODES_OF_OPERATION, canopen::MODES_OF_OPERATION_INTERPOLATED_POSITION_MODE);
+            canopen::sendSDO(device.second.getCANid(), canopen::MODES_OF_OPERATION, canopen::MODES_OF_OPERATION_INTERPOLATED_POSITION_MODE, device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -281,14 +310,14 @@ bool init(std::string deviceFile, std::chrono::milliseconds syncInterval)
             canopen::setMotorState((uint16_t)device.second.getCANid(), canopen::MS_OPERATION_ENABLED);
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-            sendSDO((uint16_t)device.second.getCANid(), canopen::IP_TIME_UNITS, (uint8_t) syncInterval.count() );
+            sendSDO((uint16_t)device.second.getCANid(), canopen::IP_TIME_UNITS, (uint8_t) syncInterval.count(),device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            sendSDO((uint16_t)device.second.getCANid(), canopen::IP_TIME_INDEX, (uint8_t)canopen::IP_TIME_INDEX_MILLISECONDS);
+            sendSDO((uint16_t)device.second.getCANid(), canopen::IP_TIME_INDEX, (uint8_t)canopen::IP_TIME_INDEX_MILLISECONDS,device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            sendSDO((uint16_t)device.second.getCANid(), canopen::SYNC_TIMEOUT_FACTOR, (uint8_t)canopen::SYNC_TIMEOUT_FACTOR_DISABLE_TIMEOUT);
+            sendSDO((uint16_t)device.second.getCANid(), canopen::SYNC_TIMEOUT_FACTOR, (uint8_t)canopen::SYNC_TIMEOUT_FACTOR_DISABLE_TIMEOUT,device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-            canopen::controlPDO(device.second.getCANid(), canopen::CONTROLWORD_ENABLE_MOVEMENT, 0x00);
+            canopen::controlPDO(device.second.getCANid(), canopen::CONTROLWORD_ENABLE_MOVEMENT, 0x00,device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
 
@@ -299,7 +328,8 @@ bool init(std::string deviceFile, std::chrono::milliseconds syncInterval)
 
     if (atFirstInit)
     {
-        canopen::initDeviceManagerThread(canopen::deviceManager);
+        //canopen::initDeviceManagerThread(canopen::deviceManager);
+        canopen::manager_threads.push_back(std::thread(canopen::deviceManager,deviceFile));
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
@@ -308,7 +338,7 @@ bool init(std::string deviceFile, std::chrono::milliseconds syncInterval)
         canopen::devices[device.second.getCANid()].setDesiredPos((double)device.second.getActualPos());
         canopen::devices[device.second.getCANid()].setDesiredVel(0);
 
-        getErrors(device.second.getCANid());
+        getErrors(device.second.getCANid(), device.second.getDeviceFile());
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         if(device.second.getIPMode())
@@ -349,19 +379,19 @@ bool recover(std::string deviceFile, std::chrono::milliseconds syncInterval)
         else
         {
 
-            canopen::controlPDO(device.second.getCANid(),canopen::CONTROLWORD_HALT, 0x00);
+            canopen::controlPDO(device.second.getCANid(),canopen::CONTROLWORD_HALT, 0x00,device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-            canopen::controlPDO(device.second.getCANid(),canopen::CONTROLWORD_DISABLE_INTERPOLATED, 0x00);
+            canopen::controlPDO(device.second.getCANid(),canopen::CONTROLWORD_DISABLE_INTERPOLATED, 0x00,device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-            canopen::controlPDO(device.second.getCANid(),canopen::CONTROL_WORD_DISABLE_VOLTAGE, 0x00);
+            canopen::controlPDO(device.second.getCANid(),canopen::CONTROL_WORD_DISABLE_VOLTAGE, 0x00,device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-            canopen::controlPDO(device.second.getCANid(),canopen::CONTROLWORD_QUICKSTOP, 0x00);
+            canopen::controlPDO(device.second.getCANid(),canopen::CONTROLWORD_QUICKSTOP, 0x00,device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-            canopen::sendSDO(device.second.getCANid(), canopen::MODES_OF_OPERATION, canopen::MODES_OF_OPERATION_INTERPOLATED_POSITION_MODE);
+            canopen::sendSDO(device.second.getCANid(), canopen::MODES_OF_OPERATION, canopen::MODES_OF_OPERATION_INTERPOLATED_POSITION_MODE,device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -378,17 +408,17 @@ bool recover(std::string deviceFile, std::chrono::milliseconds syncInterval)
             canopen::setMotorState(device.second.getCANid(), canopen::MS_OPERATION_ENABLED);
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-            sendSDO((uint16_t)device.second.getCANid(), canopen::IP_TIME_UNITS, (uint8_t) syncInterval.count() );
+            sendSDO((uint16_t)device.second.getCANid(), canopen::IP_TIME_UNITS, (uint8_t) syncInterval.count(),device.second.getDeviceFile() );
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            sendSDO((uint16_t)device.second.getCANid(), canopen::IP_TIME_INDEX, (uint8_t)canopen::IP_TIME_INDEX_MILLISECONDS);
+            sendSDO((uint16_t)device.second.getCANid(), canopen::IP_TIME_INDEX, (uint8_t)canopen::IP_TIME_INDEX_MILLISECONDS,device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            sendSDO((uint16_t)device.second.getCANid(), canopen::SYNC_TIMEOUT_FACTOR, (uint8_t)canopen::SYNC_TIMEOUT_FACTOR_DISABLE_TIMEOUT);
+            sendSDO((uint16_t)device.second.getCANid(), canopen::SYNC_TIMEOUT_FACTOR, (uint8_t)canopen::SYNC_TIMEOUT_FACTOR_DISABLE_TIMEOUT,device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-            canopen::controlPDO(device.second.getCANid(), canopen::CONTROLWORD_ENABLE_MOVEMENT, 0x00);
+            canopen::controlPDO(device.second.getCANid(), canopen::CONTROLWORD_ENABLE_MOVEMENT, 0x00,device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
-            canopen::uploadSDO(device.second.getCANid(), canopen::STATUSWORD);
+            canopen::uploadSDO(device.second.getCANid(), canopen::STATUSWORD,device.second.getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         }
@@ -422,7 +452,7 @@ bool recover(std::string deviceFile, std::chrono::milliseconds syncInterval)
 
 void halt(std::string deviceFile, std::chrono::milliseconds syncInterval)
 {
-    CAN_Close(h);
+    CAN_Close(chain_handlers[deviceFile]);
 
     NMTmsg.ID = 0;
     NMTmsg.MSGTYPE = 0x00;
@@ -453,20 +483,20 @@ void halt(std::string deviceFile, std::chrono::milliseconds syncInterval)
     {
 
 
-        canopen::sendSDO(device.second.getCANid(), canopen::CONTROLWORD, canopen:: CONTROLWORD_HALT);
+        canopen::sendSDO(device.second.getCANid(), canopen::CONTROLWORD, canopen:: CONTROLWORD_HALT,device.second.getDeviceFile());
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        canopen::sendSDO(device.second.getCANid(), canopen::CONTROLWORD, canopen:: CONTROLWORD_DISABLE_INTERPOLATED);
+        canopen::sendSDO(device.second.getCANid(), canopen::CONTROLWORD, canopen:: CONTROLWORD_DISABLE_INTERPOLATED,device.second.getDeviceFile());
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        canopen::sendSDO(device.second.getCANid(), canopen::CONTROLWORD, canopen:: CONTROL_WORD_DISABLE_VOLTAGE);
+        canopen::sendSDO(device.second.getCANid(), canopen::CONTROLWORD, canopen:: CONTROL_WORD_DISABLE_VOLTAGE,device.second.getDeviceFile());
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        canopen::sendSDO(device.second.getCANid(), canopen::CONTROLWORD, canopen::CONTROLWORD_QUICKSTOP);
-        canopen::uploadSDO(device.second.getCANid(), canopen::STATUSWORD);
+        canopen::sendSDO(device.second.getCANid(), canopen::CONTROLWORD, canopen::CONTROLWORD_QUICKSTOP,device.second.getDeviceFile());
+        canopen::uploadSDO(device.second.getCANid(), canopen::STATUSWORD,device.second.getDeviceFile());
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     }
@@ -493,44 +523,44 @@ void setMotorState(uint16_t CANid, std::string targetState)
 
         if(elapsed_seconds.count() > 3)
             return;
-        canopen::uploadSDO(CANid, canopen::STATUSWORD);
+        canopen::uploadSDO(CANid, canopen::STATUSWORD,devices[CANid].getDeviceFile());
         if (devices[CANid].getMotorState() == MS_FAULT)
         {
-            canopen::uploadSDO(CANid, canopen::STATUSWORD);
+            canopen::uploadSDO(CANid, canopen::STATUSWORD,devices[CANid].getDeviceFile());
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
             if(!devices[CANid].getFault())
             {
-                canopen::controlPDO(CANid, canopen::CONTROLWORD_FAULT_RESET_0, 0x00);
+                canopen::controlPDO(CANid, canopen::CONTROLWORD_FAULT_RESET_0, 0x00,devices[CANid].getDeviceFile());
             }
             else
             {
                 //std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                canopen::controlPDO(CANid, canopen::CONTROLWORD_FAULT_RESET_1, 0x00);
+                canopen::controlPDO(CANid, canopen::CONTROLWORD_FAULT_RESET_1, 0x00,devices[CANid].getDeviceFile());
             }
 
         }
 
         if (devices[CANid].getMotorState() == MS_NOT_READY_TO_SWITCH_ON)
         {
-            canopen::uploadSDO(CANid, canopen::STATUSWORD);
-            canopen::controlPDO(CANid, canopen::CONTROLWORD_SHUTDOWN, 0x00);
+            canopen::uploadSDO(CANid, canopen::STATUSWORD,devices[CANid].getDeviceFile());
+            canopen::controlPDO(CANid, canopen::CONTROLWORD_SHUTDOWN, 0x00,devices[CANid].getDeviceFile());
         }
 
         if (devices[CANid].getMotorState() == MS_SWITCHED_ON_DISABLED)
         {
             //canopen::sendSDO(CANid, canopen::CONTROLWORD, canopen::CONTROLWORD_SHUTDOWN);
-            canopen::controlPDO(CANid, canopen::CONTROLWORD_SHUTDOWN, 0x00);
+            canopen::controlPDO(CANid, canopen::CONTROLWORD_SHUTDOWN, 0x00,devices[CANid].getDeviceFile());
         }
         if (devices[CANid].getMotorState() == MS_READY_TO_SWITCH_ON)
         {
             //canopen::sendSDO(CANid, canopen::CONTROLWORD, canopen::CONTROLWORD_SWITCH_ON);
-            canopen::controlPDO(CANid, canopen::CONTROLWORD_SWITCH_ON, 0x00);
+            canopen::controlPDO(CANid, canopen::CONTROLWORD_SWITCH_ON, 0x00,devices[CANid].getDeviceFile());
         }
         if (devices[CANid].getMotorState() == MS_SWITCHED_ON)
         {
             //canopen::sendSDO(CANid, canopen::CONTROLWORD, canopen::CONTROLWORD_ENABLE_OPERATION);
-            canopen::controlPDO(CANid, canopen::CONTROLWORD_ENABLE_OPERATION, 0x00);
+            canopen::controlPDO(CANid, canopen::CONTROLWORD_ENABLE_OPERATION, 0x00,devices[CANid].getDeviceFile());
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
@@ -553,7 +583,7 @@ TPCANMsg syncMsg;
 //		define SDO protocol functions
 /***************************************************************/
 
-void requestDataBlock1(uint8_t CANid)
+void requestDataBlock1(uint8_t CANid, std::string devName)
 {
     TPCANMsg msg;
     std::memset(&msg, 0, sizeof(msg));
@@ -568,10 +598,10 @@ void requestDataBlock1(uint8_t CANid)
     msg.DATA[5] = 0x00;
     msg.DATA[6] = 0x00;
     msg.DATA[7] = 0x00;
-    CAN_Write(h, &msg);
+    CAN_Write(chain_handlers[devName], &msg);
 }
 
-void requestDataBlock2(uint8_t CANid)
+void requestDataBlock2(uint8_t CANid, std::string devName)
 {
     TPCANMsg msg;
     std::memset(&msg, 0, sizeof(msg));
@@ -586,10 +616,10 @@ void requestDataBlock2(uint8_t CANid)
     msg.DATA[5] = 0x00;
     msg.DATA[6] = 0x00;
     msg.DATA[7] = 0x00;
-    CAN_Write(h, &msg);
+    CAN_Write(chain_handlers[devName], &msg);
 }
 
-void controlPDO(uint8_t CANid, u_int16_t control1, u_int16_t control2)
+void controlPDO(uint8_t CANid, u_int16_t control1, u_int16_t control2, std::string devName)
 {
     TPCANMsg msg;
     std::memset(&msg, 0, sizeof(msg));
@@ -598,10 +628,10 @@ void controlPDO(uint8_t CANid, u_int16_t control1, u_int16_t control2)
     msg.LEN = 2;
     msg.DATA[0] = control1;
     msg.DATA[1] = control2;
-    CAN_Write(h, &msg);
+    CAN_Write(chain_handlers[devName], &msg);
 }
 
-void uploadSDO(uint8_t CANid, SDOkey sdo)
+void uploadSDO(uint8_t CANid, SDOkey sdo, std::string devName)
 {
     TPCANMsg msg;
     std::memset(&msg, 0, sizeof(msg));
@@ -616,10 +646,10 @@ void uploadSDO(uint8_t CANid, SDOkey sdo)
     msg.DATA[5] = 0x00;
     msg.DATA[6] = 0x00;
     msg.DATA[7] = 0x00;
-    CAN_Write(h, &msg);
+    CAN_Write(chain_handlers[devName], &msg);
 }
 
-void sendSDO(uint8_t CANid, SDOkey sdo, uint32_t value)
+void sendSDO(uint8_t CANid, SDOkey sdo, uint32_t value, std::string devName)
 {
     TPCANMsg msg;
     std::memset(&msg, 0, sizeof(msg));
@@ -633,10 +663,10 @@ void sendSDO(uint8_t CANid, SDOkey sdo, uint32_t value)
     msg.DATA[5] = (value >> 8) & 0xFF;
     msg.DATA[6] = (value >> 16) & 0xFF;
     msg.DATA[7] = (value >> 24) & 0xFF;
-    CAN_Write(h, &msg);
+    CAN_Write(chain_handlers[devName], &msg);
 }
 
-void sendSDO(uint8_t CANid, SDOkey sdo, int32_t value)
+void sendSDO(uint8_t CANid, SDOkey sdo, int32_t value, std::string devName)
 {
     TPCANMsg msg;
     std::memset(&msg, 0, sizeof(msg));
@@ -650,10 +680,10 @@ void sendSDO(uint8_t CANid, SDOkey sdo, int32_t value)
     msg.DATA[5] = (value >> 8) & 0xFF;
     msg.DATA[6] = (value >> 16) & 0xFF;
     msg.DATA[7] = (value >> 24) & 0xFF;
-    CAN_Write(h, &msg);
+    CAN_Write(chain_handlers[devName], &msg);
 }
 
-void sendSDO_unknown(uint8_t CANid, SDOkey sdo, int32_t value)
+void sendSDO_unknown(uint8_t CANid, SDOkey sdo, int32_t value, std::string devName)
 {
     TPCANMsg msg;
     std::memset(&msg, 0, sizeof(msg));
@@ -667,10 +697,10 @@ void sendSDO_unknown(uint8_t CANid, SDOkey sdo, int32_t value)
     msg.DATA[5] = (value >> 8) & 0xFF;
     msg.DATA[6] = (value >> 16) & 0xFF;
     msg.DATA[7] = (value >> 24) & 0xFF;
-    CAN_Write(h, &msg);
+    CAN_Write(chain_handlers[devName], &msg);
 }
 
-void sendSDO(uint8_t CANid, SDOkey sdo, uint8_t value)
+void sendSDO(uint8_t CANid, SDOkey sdo, uint8_t value, std::string devName)
 {
     TPCANMsg msg;
     std::memset(&msg, 0, sizeof(msg));
@@ -684,12 +714,12 @@ void sendSDO(uint8_t CANid, SDOkey sdo, uint8_t value)
     msg.DATA[5] = 0x00;
     msg.DATA[6] = 0x00;
     msg.DATA[7] = 0x00;
-    CAN_Write(h, &msg);
+    CAN_Write(chain_handlers[devName], &msg);
 
 
 }
 
-void sendSDO(uint8_t CANid, SDOkey sdo, uint16_t value)
+void sendSDO(uint8_t CANid, SDOkey sdo, uint16_t value, std::string devName)
 {
     TPCANMsg msg;
     std::memset(&msg, 0, sizeof(msg));
@@ -703,7 +733,7 @@ void sendSDO(uint8_t CANid, SDOkey sdo, uint16_t value)
     msg.DATA[5] = (value >> 8) & 0xFF;
     msg.DATA[6] = 0x00;
     msg.DATA[7] = 0x00;
-    CAN_Write(h, &msg);
+    CAN_Write(chain_handlers[devName], &msg);
 }
 
 /***************************************************************/
@@ -717,7 +747,7 @@ void initDeviceManagerThread(std::function<void ()> const& deviceManager)
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 }
 
-void deviceManager()
+void deviceManager(std::string devName)
 {
 
     while (true)
@@ -733,7 +763,7 @@ void deviceManager()
                     sendPos((uint16_t)device.second.getCANid(), (double)device.second.getDesiredPos());
                 }
             }
-            canopen::sendSync();
+            canopen::sendSync(devName);
             std::this_thread::sleep_for(syncInterval - (std::chrono::high_resolution_clock::now() - tic ));
         }
 
@@ -745,7 +775,7 @@ std::function< void (uint16_t CANid, double velocityValue) > sendVel;
 std::function< void (uint16_t CANid, double positionValue) > sendPos;
 std::function< void (uint16_t CANid, double positionValue, double velocityValue) > sendPosPPMode;
 
-void defaultPDOOutgoing_interpolated(uint16_t CANid, double positionValue)
+void defaultPDOOutgoing_interpolated(uint16_t CANid, double positionValue, std::string devName)
 {
     static const uint16_t myControlword = (CONTROLWORD_ENABLE_OPERATION | CONTROLWORD_ENABLE_IP_MODE);
     TPCANMsg msg;
@@ -758,10 +788,10 @@ void defaultPDOOutgoing_interpolated(uint16_t CANid, double positionValue)
     msg.DATA[1] = (mdegPos >> 8) & 0xFF;
     msg.DATA[2] = (mdegPos >> 16) & 0xFF;
     msg.DATA[3] = (mdegPos >> 24) & 0xFF;
-    CAN_Write(h, &msg);
+    CAN_Write(chain_handlers[devName], &msg);
 }
 
-void defaultPDOOutgoing(uint16_t CANid, double positionValue)
+void defaultPDOOutgoing(uint16_t CANid, double positionValue, std::string devName)
 {
     static const uint16_t myControlword = (CONTROLWORD_ENABLE_OPERATION | CONTROLWORD_ENABLE_IP_MODE);
     TPCANMsg msg;
@@ -778,7 +808,7 @@ void defaultPDOOutgoing(uint16_t CANid, double positionValue)
     msg.DATA[5] = (mdegPos >> 8) & 0xFF;
     msg.DATA[6] = (mdegPos >> 16) & 0xFF;
     msg.DATA[7] = (mdegPos >> 24) & 0xFF;
-    CAN_Write(h, &msg);
+    CAN_Write(chain_handlers[devName], &msg);
 }
 
 
@@ -1058,13 +1088,13 @@ void initListenerThread(std::function<void ()> const& listener)
     //std::cout << "Listener thread initialized" << std::endl;
 }
 
-void defaultListener()
+void defaultListener(std::string devName)
 {
     while(true)
     {
         //std::cout << "Reading incoming data" << std::endl;
         TPCANRdMsg m;
-        errno = LINUX_CAN_Read(h, &m);
+        errno = LINUX_CAN_Read(chain_handlers[devName], &m);
         if (errno)
             perror("LINUX_CAN_Read() error");
 
@@ -1077,9 +1107,9 @@ void defaultListener()
         // incoming EMCY
         //else if (m.Msg.ID >= 0x081 && m.Msg.ID <= 0x0FF)
         //{
-         //   std::cout << std::hex << "EMCY received:  " << (uint16_t)m.Msg.ID << "  " << (uint16_t)m.Msg.DATA[0] << " " << (uint16_t)m.Msg.DATA[1] << " " << (uint16_t)m.Msg.DATA[2] << " " << (uint16_t)m.Msg.DATA[3] << " " << (uint16_t)m.Msg.DATA[4] << " " << (uint16_t)m.Msg.DATA[5] << " " << (uint16_t)m.Msg.DATA[6] << " " << (uint16_t)m.Msg.DATA[7] << std::endl;
-          //  if (incomingEMCYHandlers.find(m.Msg.ID) != incomingEMCYHandlers.end())
-           //     incomingEMCYHandlers[m.Msg.ID](m);
+        //   std::cout << std::hex << "EMCY received:  " << (uint16_t)m.Msg.ID << "  " << (uint16_t)m.Msg.DATA[0] << " " << (uint16_t)m.Msg.DATA[1] << " " << (uint16_t)m.Msg.DATA[2] << " " << (uint16_t)m.Msg.DATA[3] << " " << (uint16_t)m.Msg.DATA[4] << " " << (uint16_t)m.Msg.DATA[5] << " " << (uint16_t)m.Msg.DATA[6] << " " << (uint16_t)m.Msg.DATA[7] << std::endl;
+        //  if (incomingEMCYHandlers.find(m.Msg.ID) != incomingEMCYHandlers.end())
+        //     incomingEMCYHandlers[m.Msg.ID](m);
         //}
 
         // incoming TIME
@@ -1114,7 +1144,7 @@ void defaultListener()
             uint16_t CANid = (uint16_t)(m.Msg.ID - 0x700);
             
             if (m.Msg.DATA[0] == 0x00)
-            {          
+            {
                 std::cout << "Bootup received. Node-ID =  " << CANid << std::endl;
                 devices[CANid].setNMTInit(true);
             }
@@ -1133,9 +1163,9 @@ void defaultListener()
 /******************************************************************************
  * Define get errors function
  *****************************************************************************/
-void getErrors(uint16_t CANid)
+void getErrors(uint16_t CANid, std::string devName)
 {
-    canopen::uploadSDO(CANid, canopen::ERRORWORD);
+    canopen::uploadSDO(CANid, canopen::ERRORWORD, devName);
 }
 
 void errorword_incoming(uint8_t CANid, BYTE data[1])
@@ -1144,13 +1174,13 @@ void errorword_incoming(uint8_t CANid, BYTE data[1])
 
 }
 
-void readManErrReg(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m)
+void readManErrReg(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
 {
 
-    canopen::uploadSDO(CANid, canopen::MANUFACTURER);
+    canopen::uploadSDO(CANid, canopen::MANUFACTURER, devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m, devName);
 
     uint16_t code = m->Msg.DATA[4];
     uint16_t classification = m->Msg.DATA[5];
@@ -1170,15 +1200,15 @@ void readManErrReg(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m)
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 }
 
-void readErrorsRegister(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m)
+void readErrorsRegister(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
 {
-    canopen::uploadSDO(CANid, canopen::STATUSWORD);
+    canopen::uploadSDO(CANid, canopen::STATUSWORD, devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m, devName);
 
-    canopen::uploadSDO(CANid, canopen::ERRORWORD);
+    canopen::uploadSDO(CANid, canopen::ERRORWORD, devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m, devName);
 
     uint16_t error_register;
     error_register = m->Msg.DATA[4];
@@ -1204,14 +1234,14 @@ void readErrorsRegister(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m)
     std::cout << "\n";
 }
 
-std::vector<uint16_t> obtainVendorID(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m)
+std::vector<uint16_t> obtainVendorID(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
 {
-    canopen::uploadSDO(CANid, canopen::IDENTITYVENDORID);
+    canopen::uploadSDO(CANid, canopen::IDENTITYVENDORID, devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     std::vector<uint16_t> vendor_id;
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m, devName);
 
     uint16_t id4 = m->Msg.DATA[4];
     uint16_t id3 = m->Msg.DATA[5];
@@ -1226,14 +1256,14 @@ std::vector<uint16_t> obtainVendorID(uint16_t CANid, std::shared_ptr<TPCANRdMsg>
     return vendor_id;
 }
 
-std::vector<uint16_t> obtainProdCode(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m)
+std::vector<uint16_t> obtainProdCode(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
 {
-    canopen::uploadSDO(CANid, canopen::IDENTITYPRODUCTCODE);
+    canopen::uploadSDO(CANid, canopen::IDENTITYPRODUCTCODE, devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     std::vector<uint16_t> product_code;
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m,devName);
 
     uint16_t id4 = m->Msg.DATA[4];
     uint16_t id3 = m->Msg.DATA[5];
@@ -1249,13 +1279,13 @@ std::vector<uint16_t> obtainProdCode(uint16_t CANid, std::shared_ptr<TPCANRdMsg>
 
 }
 
-uint16_t obtainRevNr(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m)
+uint16_t obtainRevNr(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
 {
-    canopen::uploadSDO(CANid, canopen::IDENTITYREVNUMBER);
+    canopen::uploadSDO(CANid, canopen::IDENTITYREVNUMBER, devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m, devName);
 
     uint16_t rev_number = m->Msg.DATA[4];
 
@@ -1263,21 +1293,21 @@ uint16_t obtainRevNr(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m)
 
 }
 
-std::vector<char> obtainManDevName(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m)
+std::vector<char> obtainManDevName(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
 {
-    canopen::uploadSDO(CANid, canopen::MANUFACTURERDEVICENAME);
+    canopen::uploadSDO(CANid, canopen::MANUFACTURERDEVICENAME, devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     std::vector<char> manufacturer_device_name;
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m,devName);
 
     int size = m->Msg.DATA[4];
 
-    canopen::requestDataBlock1(CANid);
+    canopen::requestDataBlock1(CANid,devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m,devName);
 
 
     for (auto it : m->Msg.DATA)
@@ -1287,10 +1317,10 @@ std::vector<char> obtainManDevName(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m
     }
 
 
-    canopen::requestDataBlock2(CANid);
+    canopen::requestDataBlock2(CANid,devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m,devName);
 
 
     for (auto it : m->Msg.DATA)
@@ -1306,21 +1336,21 @@ std::vector<char> obtainManDevName(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m
 
 
 
-std::vector<char> obtainManHWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m)
+std::vector<char> obtainManHWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
 {
-    canopen::uploadSDO(CANid, canopen::MANUFACTURERHWVERSION);
+    canopen::uploadSDO(CANid, canopen::MANUFACTURERHWVERSION,devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     std::vector<char> manufacturer_hw_version;
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m,devName);
 
     int size = m->Msg.DATA[4];
 
-    canopen::requestDataBlock1(CANid);
+    canopen::requestDataBlock1(CANid,devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m,devName);
 
 
     for (auto it : m->Msg.DATA)
@@ -1330,10 +1360,10 @@ std::vector<char> obtainManHWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg>
     }
 
 
-    canopen::requestDataBlock2(CANid);
+    canopen::requestDataBlock2(CANid,devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m,devName);
 
 
     for (auto it : m->Msg.DATA)
@@ -1345,21 +1375,21 @@ std::vector<char> obtainManHWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg>
     return manufacturer_hw_version;
 }
 
-std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m)
+std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName)
 {
     std::vector<char> manufacturer_sw_version;
 
-    canopen::uploadSDO(CANid, canopen::MANUFACTURERSOFTWAREVERSION);
+    canopen::uploadSDO(CANid, canopen::MANUFACTURERSOFTWAREVERSION,devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m,devName);
 
     int size = (uint8_t)m->Msg.DATA[4];
 
-    canopen::requestDataBlock1(CANid);
+    canopen::requestDataBlock1(CANid,devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m,devName);
 
 
     for (auto it : m->Msg.DATA)
@@ -1369,10 +1399,10 @@ std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg>
     }
 
 
-    canopen::requestDataBlock2(CANid);
+    canopen::requestDataBlock2(CANid,devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m,devName);
 
 
     for (auto it : m->Msg.DATA)
@@ -1381,10 +1411,10 @@ std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg>
             manufacturer_sw_version.push_back(it);
     }
 
-    canopen::requestDataBlock1(CANid);
+    canopen::requestDataBlock1(CANid,devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m,devName);
 
 
     for (auto it : m->Msg.DATA)
@@ -1393,10 +1423,10 @@ std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg>
             manufacturer_sw_version.push_back(it);
     }
 
-    canopen::requestDataBlock2(CANid);
+    canopen::requestDataBlock2(CANid,devName);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    canopen::processSingleSDO(CANid, m);
+    canopen::processSingleSDO(CANid, m,devName);
 
 
     for (auto it : m->Msg.DATA)
@@ -1504,18 +1534,18 @@ void statusword_incoming(uint8_t CANid, BYTE data[8])
     //std::cout << "Motor State of Device with CANid " << (uint16_t)CANid << " is: " << devices[CANid].getMotorState() << std::endl;
 }
 
-void processSingleSDO(uint8_t CANid, std::shared_ptr<TPCANRdMsg> message)
+void processSingleSDO(uint8_t CANid, std::shared_ptr<TPCANRdMsg> message, std::string devName)
 {
     message->Msg.ID = 0x00;
 
     while (message->Msg.ID != (0x580+CANid))
     {
-        LINUX_CAN_Read(canopen::h, message.get());
+        LINUX_CAN_Read(chain_handlers[devName], message.get());
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
 
-void pdoChanged()
+void pdoChanged(std::string devName)
 {
     for (auto device : devices)
     {
@@ -1532,7 +1562,7 @@ void pdoChanged()
         mes->DATA[5] = 0x00;
         mes->DATA[6] = 0x00;
         mes->DATA[7] = 0x01;
-        CAN_Write(canopen::h, mes);
+        CAN_Write(chain_handlers[devName], mes);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -1546,26 +1576,26 @@ void disableRPDO(int object)
         {
             int32_t data = (canopen::RPDO1_msg + device.second.getCANid())  + (0x00 << 16) + (0x80 << 24);
 
-            sendSDO(device.second.getCANid(), RPDO1_sub1, data);
+            sendSDO(device.second.getCANid(), RPDO1_sub1, data, device.second.getDeviceFile());
         }
 
         else if(object == 2)
         {
             int32_t data = (canopen::RPDO2_msg + device.second.getCANid())  + (0x00 << 16) + (0x80 << 24);
 
-            sendSDO(device.second.getCANid(), RPDO2_sub1, data);
+            sendSDO(device.second.getCANid(), RPDO2_sub1, data, device.second.getDeviceFile());
         }
         else if(object == 3)
         {
             int32_t data = (canopen::RPDO3_msg + device.second.getCANid())  + (0x00 << 16) + (0x80 << 24);
 
-            sendSDO(device.second.getCANid(), RPDO3_sub1, data);
+            sendSDO(device.second.getCANid(), RPDO3_sub1, data, device.second.getDeviceFile());
         }
         else if(object == 4)
         {
             int32_t data = (canopen::RPDO4_msg + device.second.getCANid())  + (0x00 << 16) + (0x80 << 24);
 
-            sendSDO(device.second.getCANid(), RPDO4_sub1, data);
+            sendSDO(device.second.getCANid(), RPDO4_sub1, data, device.second.getDeviceFile());
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -1580,27 +1610,27 @@ void setObjects()
     for (auto device : devices)
     {
         int32_t data = 0x1388 + (0x00 << 16) + (0x00 << 24);
-        sendSDO_unknown(device.second.getCANid(), SDOkey(0x6081,0x00), data);
+        sendSDO_unknown(device.second.getCANid(), SDOkey(0x6081,0x00), data, device.second.getDeviceFile());
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         data = 0x1388 + (0x00 << 16) + (0x00 << 24);
-        sendSDO_unknown(device.second.getCANid(), SDOkey(0x607f,0x00), data);
+        sendSDO_unknown(device.second.getCANid(), SDOkey(0x607f,0x00), data, device.second.getDeviceFile());
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         data = 0x1388 + (0x00 << 16) + (0x00 << 24);
-        sendSDO_unknown(device.second.getCANid(), SDOkey(0x6083,0x00), data);
+        sendSDO_unknown(device.second.getCANid(), SDOkey(0x6083,0x00), data, device.second.getDeviceFile());
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         data = 0x1388 + (0x00 << 16) + (0x00 << 24);
-        sendSDO_unknown(device.second.getCANid(), SDOkey(0x60c5,0x00), data);
+        sendSDO_unknown(device.second.getCANid(), SDOkey(0x60c5,0x00), data, device.second.getDeviceFile());
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         data = 0x1388 + (0x00 << 16) + (0x00 << 24);
-        sendSDO_unknown(device.second.getCANid(), SDOkey(0x60c6,0x00), data);
+        sendSDO_unknown(device.second.getCANid(), SDOkey(0x60c6,0x00), data, device.second.getDeviceFile());
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         data = 0x1388 + (0x00 << 16) + (0x00 << 24);
-        sendSDO_unknown(device.second.getCANid(), SDOkey(0x6082,0x00), data);
+        sendSDO_unknown(device.second.getCANid(), SDOkey(0x6082,0x00), data, device.second.getDeviceFile());
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     }
@@ -1612,13 +1642,13 @@ void clearRPDOMapping(int object)
     {
         int32_t data = (0x00 << 16) + (0x80 << 24);
         if(object ==1)
-            sendSDO_unknown(device.second.getCANid(), RPDO1_map, data);
+            sendSDO_unknown(device.second.getCANid(), RPDO1_map, data, device.second.getDeviceFile());
         else if(object == 2)
-            sendSDO_unknown(device.second.getCANid(), RPDO2_map, data);
+            sendSDO_unknown(device.second.getCANid(), RPDO2_map, data, device.second.getDeviceFile());
         else if(object == 3)
-            sendSDO_unknown(device.second.getCANid(), RPDO3_map, data);
+            sendSDO_unknown(device.second.getCANid(), RPDO3_map, data, device.second.getDeviceFile());
         else if(object == 4)
-            sendSDO_unknown(device.second.getCANid(), RPDO4_map, data);
+            sendSDO_unknown(device.second.getCANid(), RPDO4_map, data, device.second.getDeviceFile());
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -1647,7 +1677,7 @@ void makeRPDOMapping(int object,std::string index1, int index1_size, std::string
         {
             int32_t data = (index1_size) + (index1_data << 8);
 
-            sendSDO(device.second.getCANid(), RPDO1_map_sub1, data);
+            sendSDO(device.second.getCANid(), RPDO1_map_sub1, data, device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1655,7 +1685,7 @@ void makeRPDOMapping(int object,std::string index1, int index1_size, std::string
 
             //////////////////// ASync
 
-            sendSDO(device.second.getCANid(), RPDO1_sub2, u_int8_t(0xFF));
+            sendSDO(device.second.getCANid(), RPDO1_sub2, u_int8_t(0xFF), device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1663,7 +1693,7 @@ void makeRPDOMapping(int object,std::string index1, int index1_size, std::string
             ///
             ///
             /////////////////////// Mapping 1 object
-            sendSDO(device.second.getCANid(), RPDO1_map, u_int8_t(0x01));
+            sendSDO(device.second.getCANid(), RPDO1_map, u_int8_t(0x01), device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1674,7 +1704,7 @@ void makeRPDOMapping(int object,std::string index1, int index1_size, std::string
         {
             int32_t data = (index1_size) + (index1_data << 8);
 
-            sendSDO(device.second.getCANid(), RPDO2_map_sub1, data);
+            sendSDO(device.second.getCANid(), RPDO2_map_sub1, data, device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1682,7 +1712,7 @@ void makeRPDOMapping(int object,std::string index1, int index1_size, std::string
 
             //////////////////// ASync
 
-            sendSDO(device.second.getCANid(), RPDO2_sub2, u_int8_t(0xFF));
+            sendSDO(device.second.getCANid(), RPDO2_sub2, u_int8_t(0xFF), device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1690,7 +1720,7 @@ void makeRPDOMapping(int object,std::string index1, int index1_size, std::string
             ///
             ///
             /////////////////////// Mapping 1 object
-            sendSDO(device.second.getCANid(), RPDO2_map, u_int8_t(0x01));
+            sendSDO(device.second.getCANid(), RPDO2_map, u_int8_t(0x01), device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1701,7 +1731,7 @@ void makeRPDOMapping(int object,std::string index1, int index1_size, std::string
         {
             int32_t data = (index1_size) + (index1_data << 8);
 
-            sendSDO(device.second.getCANid(), RPDO3_map_sub1, data);
+            sendSDO(device.second.getCANid(), RPDO3_map_sub1, data, device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1709,7 +1739,7 @@ void makeRPDOMapping(int object,std::string index1, int index1_size, std::string
 
             //////////////////// ASync
 
-            sendSDO(device.second.getCANid(), RPDO3_sub2, u_int8_t(0xFF));
+            sendSDO(device.second.getCANid(), RPDO3_sub2, u_int8_t(0xFF), device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1717,7 +1747,7 @@ void makeRPDOMapping(int object,std::string index1, int index1_size, std::string
             ///
             ///
             /////////////////////// Mapping 1 object
-            sendSDO(device.second.getCANid(), RPDO3_map, u_int8_t(0x01));
+            sendSDO(device.second.getCANid(), RPDO3_map, u_int8_t(0x01), device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1728,7 +1758,7 @@ void makeRPDOMapping(int object,std::string index1, int index1_size, std::string
         {
             int32_t data = (index1_size) + (index1_data << 8);
 
-            sendSDO(device.second.getCANid(), RPDO4_map_sub1, data);
+            sendSDO(device.second.getCANid(), RPDO4_map_sub1, data, device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1736,7 +1766,7 @@ void makeRPDOMapping(int object,std::string index1, int index1_size, std::string
 
             //////////////////// ASync
 
-            sendSDO(device.second.getCANid(), RPDO4_sub2, u_int8_t(0xFF));
+            sendSDO(device.second.getCANid(), RPDO4_sub2, u_int8_t(0xFF), device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1744,7 +1774,7 @@ void makeRPDOMapping(int object,std::string index1, int index1_size, std::string
             ///
             ///
             /////////////////////// Mapping 1 object
-            sendSDO(device.second.getCANid(), RPDO4_map, u_int8_t(0x01));
+            sendSDO(device.second.getCANid(), RPDO4_map, u_int8_t(0x01), device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1762,26 +1792,26 @@ void enableRPDO(int object)
         {
             int32_t data = (canopen::RPDO1_msg + device.second.getCANid()) + (0x00 << 16) + (0x00 << 24);
 
-            sendSDO(device.second.getCANid(), RPDO1_sub1, data);
+            sendSDO(device.second.getCANid(), RPDO1_sub1, data, device.second.getDeviceFile());
         }
         else if(object == 2)
         {
             int32_t data = (canopen::RPDO2_msg + device.second.getCANid()) + (0x00 << 16) + (0x00 << 24);
 
-            sendSDO(device.second.getCANid(), RPDO2_sub1, data);
+            sendSDO(device.second.getCANid(), RPDO2_sub1, data, device.second.getDeviceFile());
         }
         else if(object == 3)
         {
             int32_t data = (canopen::RPDO3_msg + device.second.getCANid()) + (0x00 << 16) + (0x00 << 24);
 
-            sendSDO(device.second.getCANid(), RPDO3_sub1, data);
+            sendSDO(device.second.getCANid(), RPDO3_sub1, data, device.second.getDeviceFile());
         }
 
         else if(object == 4)
         {
             int32_t data = (canopen::RPDO4_msg + device.second.getCANid()) + (0x00 << 16) + (0x00 << 24);
 
-            sendSDO(device.second.getCANid(), RPDO4_sub1, data);
+            sendSDO(device.second.getCANid(), RPDO4_sub1, data, device.second.getDeviceFile());
         }
 
 
@@ -1809,13 +1839,13 @@ void disableTPDO(int object)
         {
             int32_t data = (canopen::TPDO1_msg + device.second.getCANid())  + (0x00 << 16) + (0x80 << 24);
 
-            sendSDO(device.second.getCANid(), TPDO1_sub1, data);
+            sendSDO(device.second.getCANid(), TPDO1_sub1, data, device.second.getDeviceFile());
         }
         else if(object == 2)
         {
             int32_t data = (canopen::TPDO2_msg + device.second.getCANid())  + (0x00 << 16) + (0x80 << 24);
 
-            sendSDO(device.second.getCANid(), TPDO2_sub1, data);
+            sendSDO(device.second.getCANid(), TPDO2_sub1, data, device.second.getDeviceFile());
 
         }
 
@@ -1823,7 +1853,7 @@ void disableTPDO(int object)
         {
             int32_t data = (canopen::TPDO3_msg + device.second.getCANid())  + (0x00 << 16) + (0x80 << 24);
 
-            sendSDO(device.second.getCANid(), TPDO3_sub1, data);
+            sendSDO(device.second.getCANid(), TPDO3_sub1, data, device.second.getDeviceFile());
         }
 
         else if(object == 4)
@@ -1831,7 +1861,7 @@ void disableTPDO(int object)
         {
             int32_t data = (canopen::TPDO4_msg + device.second.getCANid())  + (0x00 << 16) + (0x80 << 24);
 
-            sendSDO(device.second.getCANid(), TPDO4_sub1, data);
+            sendSDO(device.second.getCANid(), TPDO4_sub1, data, device.second.getDeviceFile());
         }
 
         else
@@ -1853,13 +1883,13 @@ void clearTPDOMapping(int object)
         ///
         //int32_t data = (0x00 << 16) + (0x00 << 24);
         if(object ==1)
-            sendSDO(device.second.getCANid(), TPDO1_map, u_int8_t(0x00));
+            sendSDO(device.second.getCANid(), TPDO1_map, u_int8_t(0x00), device.second.getDeviceFile());
         else if(object == 2)
-            sendSDO(device.second.getCANid(), TPDO2_map, u_int8_t(0x00));
+            sendSDO(device.second.getCANid(), TPDO2_map, u_int8_t(0x00), device.second.getDeviceFile());
         else if(object == 3)
-            sendSDO(device.second.getCANid(), TPDO3_map, u_int8_t(0x00));
+            sendSDO(device.second.getCANid(), TPDO3_map, u_int8_t(0x00), device.second.getDeviceFile());
         else if(object == 4)
-            sendSDO(device.second.getCANid(), TPDO4_map, u_int8_t(0x00));
+            sendSDO(device.second.getCANid(), TPDO4_map, u_int8_t(0x00), device.second.getDeviceFile());
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -1892,7 +1922,7 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
         {
             int32_t data = (index1_size) + (index1_data << 8);
 
-            sendSDO(device.second.getCANid(), TPDO1_map_sub1, data);
+            sendSDO(device.second.getCANid(), TPDO1_map_sub1, data, device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1903,7 +1933,7 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
                 //////////////////// sub ind2=69
                 data = (index2_size) + (index2_data << 8);
 
-                sendSDO(device.second.getCANid(), TPDO1_map_sub2, data);
+                sendSDO(device.second.getCANid(), TPDO1_map_sub2, data, device.second.getDeviceFile());
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1912,7 +1942,7 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
 
             //////////////////// ASync
 
-            sendSDO(device.second.getCANid(), TPDO1_sub2, u_int8_t(0xFF));
+            sendSDO(device.second.getCANid(), TPDO1_sub2, u_int8_t(0xFF), device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1921,9 +1951,9 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
             ///
             /////////////////////// Mapping 2 objects
             if(index2_size != 0x0)
-                sendSDO(device.second.getCANid(), TPDO1_map, u_int8_t(0x02));
+                sendSDO(device.second.getCANid(), TPDO1_map, u_int8_t(0x02), device.second.getDeviceFile());
             else
-                sendSDO(device.second.getCANid(), TPDO1_map, u_int8_t(0x01));
+                sendSDO(device.second.getCANid(), TPDO1_map, u_int8_t(0x01), device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1934,7 +1964,7 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
         {
             int32_t data = (index1_size) + (index1_data << 8);
 
-            sendSDO(device.second.getCANid(), TPDO2_map_sub1, data);
+            sendSDO(device.second.getCANid(), TPDO2_map_sub1, data, device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1945,7 +1975,7 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
                 //////////////////// sub ind2=69
                 data = (index2_size) + (index2_data << 8);
 
-                sendSDO(device.second.getCANid(), TPDO2_map_sub2, data);
+                sendSDO(device.second.getCANid(), TPDO2_map_sub2, data, device.second.getDeviceFile());
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1954,7 +1984,7 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
 
             //////////////////// ASync
 
-            sendSDO(device.second.getCANid(), TPDO2_sub2, u_int8_t(0xFF));
+            sendSDO(device.second.getCANid(), TPDO2_sub2, u_int8_t(0xFF), device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1963,9 +1993,9 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
             ///
             /////////////////////// Mapping 2 objects
             if(index2_size != 0x0)
-                sendSDO(device.second.getCANid(), TPDO2_map, u_int8_t(0x02));
+                sendSDO(device.second.getCANid(), TPDO2_map, u_int8_t(0x02), device.second.getDeviceFile());
             else
-                sendSDO(device.second.getCANid(), TPDO2_map, u_int8_t(0x01));
+                sendSDO(device.second.getCANid(), TPDO2_map, u_int8_t(0x01), device.second.getDeviceFile());
 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1978,7 +2008,7 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
             {
                 int32_t data = (index1_size) + (index1_data << 8);
 
-                sendSDO(device.second.getCANid(), TPDO3_map_sub1, data);
+                sendSDO(device.second.getCANid(), TPDO3_map_sub1, data, device.second.getDeviceFile());
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1989,7 +2019,7 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
                     //////////////////// sub ind2=69
                     data = (index2_size) + (index2_data << 8);
 
-                    sendSDO(device.second.getCANid(), TPDO3_map_sub2, data);
+                    sendSDO(device.second.getCANid(), TPDO3_map_sub2, data, device.second.getDeviceFile());
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -1998,7 +2028,7 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
 
                 //////////////////// ASync
 
-                sendSDO(device.second.getCANid(), TPDO3_sub2, u_int8_t(0xFF));
+                sendSDO(device.second.getCANid(), TPDO3_sub2, u_int8_t(0xFF), device.second.getDeviceFile());
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -2007,9 +2037,9 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
                 ///
                 /////////////////////// Mapping 2 objects
                 if(index2_size != 0x0)
-                    sendSDO(device.second.getCANid(), TPDO3_map, u_int8_t(0x02));
+                    sendSDO(device.second.getCANid(), TPDO3_map, u_int8_t(0x02), device.second.getDeviceFile());
                 else
-                    sendSDO(device.second.getCANid(), TPDO3_map, u_int8_t(0x01));
+                    sendSDO(device.second.getCANid(), TPDO3_map, u_int8_t(0x01), device.second.getDeviceFile());
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -2022,7 +2052,7 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
                 {
                     int32_t data = (index1_size) + (index1_data << 8);
 
-                    sendSDO(device.second.getCANid(), TPDO4_map_sub1, data);
+                    sendSDO(device.second.getCANid(), TPDO4_map_sub1, data, device.second.getDeviceFile());
 
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -2033,7 +2063,7 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
                         //////////////////// sub ind2=69
                         data = (index2_size) + (index2_data << 8);
 
-                        sendSDO(device.second.getCANid(), TPDO4_map_sub2, data);
+                        sendSDO(device.second.getCANid(), TPDO4_map_sub2, data, device.second.getDeviceFile());
                     }
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -2042,7 +2072,7 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
 
                     //////////////////// ASync
 
-                    sendSDO(device.second.getCANid(), TPDO4_sub2, u_int8_t(0x01));
+                    sendSDO(device.second.getCANid(), TPDO4_sub2, u_int8_t(0x01), device.second.getDeviceFile());
 
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -2051,9 +2081,9 @@ void makeTPDOMapping(int object, std::string index1, int index1_size, std::strin
                     ///
                     /////////////////////// Mapping 2 objects
                     if(index2_size != 0x0)
-                        sendSDO(device.second.getCANid(), TPDO4_map, u_int8_t(0x02));
+                        sendSDO(device.second.getCANid(), TPDO4_map, u_int8_t(0x02), device.second.getDeviceFile());
                     else
-                        sendSDO(device.second.getCANid(), TPDO4_map, u_int8_t(0x01));
+                        sendSDO(device.second.getCANid(), TPDO4_map, u_int8_t(0x01), device.second.getDeviceFile());
 
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -2075,25 +2105,25 @@ void enableTPDO(int object)
         {
             int32_t data = (canopen::TPDO1_msg + device.second.getCANid()) + (0x00 << 16) + (0x00 << 24);
 
-            sendSDO(device.second.getCANid(), TPDO1_sub1, data);
+            sendSDO(device.second.getCANid(), TPDO1_sub1, data, device.second.getDeviceFile());
         }
         else if(object == 2)
         {
             int32_t data = (canopen::TPDO2_msg + device.second.getCANid()) + (0x00 << 16) + (0x00 << 24);
 
-            sendSDO(device.second.getCANid(), TPDO2_sub1, data);
+            sendSDO(device.second.getCANid(), TPDO2_sub1, data, device.second.getDeviceFile());
         }
         else if(object == 3)
         {
             int32_t data = (canopen::TPDO3_msg + device.second.getCANid()) + (0x00 << 16) + (0x00 << 24);
 
-            sendSDO(device.second.getCANid(), TPDO3_sub1, data);
+            sendSDO(device.second.getCANid(), TPDO3_sub1, data, device.second.getDeviceFile());
         }
         else if(object == 4)
         {
             int32_t data = (canopen::TPDO4_msg + device.second.getCANid()) + (0x00 << 16) + (0x00 << 24);
 
-            sendSDO(device.second.getCANid(), TPDO4_sub1, data);
+            sendSDO(device.second.getCANid(), TPDO4_sub1, data, device.second.getDeviceFile());
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));

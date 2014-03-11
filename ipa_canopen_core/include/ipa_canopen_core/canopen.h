@@ -639,7 +639,7 @@ namespace canopen{
     void errorword_incoming(uint8_t CANid, BYTE data[1]);
 
     extern std::map<std::string, DeviceGroup> deviceGroups;	// DeviceGroup name -> DeviceGroup object
-    extern HANDLE h;
+    extern std::map<std::string, HANDLE> chain_handlers;
     extern std::map<SDOkey, std::function<void (uint8_t CANid, BYTE data[8])> > incomingDataHandlers;
     extern std::map<uint16_t, std::function<void (const TPCANRdMsg m)> > incomingPDOHandlers;
     extern std::map<uint16_t, std::function<void (const TPCANRdMsg m)> > incomingEMCYHandlers;
@@ -666,17 +666,17 @@ namespace canopen{
     void clearTPDOMapping(int object);
     void enableTPDO(int object);
 
-    void pdoChanged();
+    void pdoChanged(std::string devName);
 
-    void getErrors(uint16_t CANid);
-    std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
-    std::vector<char> obtainManHWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
-    std::vector<char> obtainManDevName(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
-    std::vector<uint16_t> obtainVendorID(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
-    uint16_t obtainRevNr(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
-    std::vector<uint16_t> obtainProdCode(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
-    void readErrorsRegister(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
-    void readManErrReg(uint16_t CANid, std::shared_ptr<TPCANRdMsg>  m);
+    void getErrors(uint16_t CANid, std::string devName);
+    std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
+    std::vector<char> obtainManHWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
+    std::vector<char> obtainManDevName(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
+    std::vector<uint16_t> obtainVendorID(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
+    uint16_t obtainRevNr(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
+    std::vector<uint16_t> obtainProdCode(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
+    void readErrorsRegister(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m, std::string devName);
+    void readManErrReg(uint16_t CANid, std::shared_ptr<TPCANRdMsg>  m, std::string devName);
 
 
     /***************************************************************/
@@ -720,7 +720,7 @@ namespace canopen{
 
     extern TPCANMsg NMTmsg;
 
-    inline void sendNMT(uint8_t CANid, uint8_t command)
+    inline void sendNMT(uint8_t CANid, uint8_t command,std::string devName)
     {
         TPCANMsg NMTmsg;
         std::memset(&NMTmsg, 0, sizeof(NMTmsg));
@@ -731,7 +731,7 @@ namespace canopen{
         //std::cout << "Sending NMT. CANid: " << (uint16_t)CANid << "\tcommand: " << (uint16_t)command << std::endl;
         NMTmsg.DATA[0] = command;
         NMTmsg.DATA[1] = CANid;
-        CAN_Write(h, &NMTmsg);
+        CAN_Write(chain_handlers[devName], &NMTmsg);
     }
 
     /***************************************************************/
@@ -740,7 +740,7 @@ namespace canopen{
 
     extern TPCANMsg syncMsg;
 
-    inline void sendSync() {
+    inline void sendSync(std::string devName) {
         TPCANMsg syncMsg;
         std::memset(&syncMsg, 0, sizeof(syncMsg));
         syncMsg.ID = 0x80;
@@ -748,7 +748,7 @@ namespace canopen{
 
         syncMsg.LEN = 0x00;
 
-        CAN_Write(h, &syncMsg);
+        CAN_Write(chain_handlers[devName], &syncMsg);
     }
 
     /***************************************************************/
@@ -924,28 +924,28 @@ namespace canopen{
     const int8_t IP_TIME_INDEX_HUNDREDMICROSECONDS = 0xFC;
     const uint8_t SYNC_TIMEOUT_FACTOR_DISABLE_TIMEOUT = 0;
 
-    void uploadSDO(uint8_t CANid, SDOkey sdo);
-    void controlPDO(uint8_t CANid, u_int16_t control1, u_int16_t control2);
-    void processSingleSDO(uint8_t CANid, std::shared_ptr<TPCANRdMsg> message);
-    void requestDataBlock1(uint8_t CANid);
-    void requestDataBlock2(uint8_t CANid);
+    void uploadSDO(uint8_t CANid, SDOkey sdo, std::string devName);
+    void controlPDO(uint8_t CANid, u_int16_t control1, u_int16_t control2, std::string devName);
+    void processSingleSDO(uint8_t CANid, std::shared_ptr<TPCANRdMsg> message, std::string devName);
+    void requestDataBlock1(uint8_t CANid, std::string devName);
+    void requestDataBlock2(uint8_t CANid, std::string devName);
 
-    void sendSDO(uint8_t CANid, SDOkey sdo, uint32_t value);
-    void sendSDO(uint8_t CANid, SDOkey sdo, int32_t value);
-    void sendSDO_unknown(uint8_t CANid, SDOkey sdo, int32_t value);
-    void sendSDO(uint8_t CANid, SDOkey sdo, uint16_t value);
-    void sendSDO(uint8_t CANid, SDOkey sdo, uint8_t value);
+    void sendSDO(uint8_t CANid, SDOkey sdo, uint32_t value, std::string devName);
+    void sendSDO(uint8_t CANid, SDOkey sdo, int32_t value, std::string devName);
+    void sendSDO_unknown(uint8_t CANid, SDOkey sdo, int32_t value, std::string devName);
+    void sendSDO(uint8_t CANid, SDOkey sdo, uint16_t value, std::string devName);
+    void sendSDO(uint8_t CANid, SDOkey sdo, uint8_t value, std::string devName);
 
     /***************************************************************/
     //		define PDO protocol functions
     /***************************************************************/
 
     void initDeviceManagerThread(std::function<void ()> const& deviceManager);
-    void deviceManager();
+    void deviceManager(std::string devName);
 
 
-    void defaultPDOOutgoing(uint16_t CANid, double positionValue);
-    void defaultPDOOutgoing_interpolated(uint16_t CANid, double positionValue);
+    void defaultPDOOutgoing(uint16_t CANid, double positionValue, std::string devName);
+    void defaultPDOOutgoing_interpolated(uint16_t CANid, double positionValue, std::string devName);
     void defaultPDO_incoming(uint16_t CANid, const TPCANRdMsg m);
     void defaultPDO_incoming_status(uint16_t CANid, const TPCANRdMsg m);
     void defaultPDO_incoming_pos(uint16_t CANid, const TPCANRdMsg m);
@@ -956,7 +956,7 @@ namespace canopen{
     /***************************************************************/
 
     void initListenerThread(std::function<void ()> const& listener);
-    void defaultListener();
+    void defaultListener(std::string devName);
 }
 
 #endif
