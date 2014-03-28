@@ -56,7 +56,7 @@
  * If not, see <http://www.gnu.org/licenses/>.
  *
  ****************************************************************/
-//!Including Required Header Files 
+//:Including Required Header Files 
 
 #include "ros/ros.h"
 #include <urdf/model.h>
@@ -204,7 +204,7 @@ bool CANOpenHalt(cob_srvs::Trigger::Request &req, cob_srvs::Trigger::Response &r
     return true;
 }
 
-//!This is a dummy function. Not used elsewhere
+//! This is a dummy function. Not used elsewhere
 bool setOperationModeCallback(cob_srvs::SetOperationMode::Request &req, cob_srvs::SetOperationMode::Response &res, std::string chainName)
 {
     res.success.data = true;  
