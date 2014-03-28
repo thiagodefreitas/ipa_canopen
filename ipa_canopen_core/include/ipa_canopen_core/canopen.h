@@ -17,9 +17,9 @@
  *   ROS package name: ipa_canopen_core
  *
  * \author
- *   Author: Eduard Herkel, Thiago de Freitas, Tobias Sing
+ *   Author: Thiago de Freitas, Tobias Sing, Eduard Herkel
  * \author
- *   Supervised by: Eduard Herkel, Thiago de Freitas, Tobias Sing, email:tdf@ipa.fhg.de
+ *   Supervised by: Thiago de Freitas email:tdf@ipa.fhg.de
  *
  * \date Date of creation: December 2012
  *
@@ -64,6 +64,7 @@
 #include <map>
 #include <vector>
 #include <string>
+#include <cstring>
 #include <chrono>
 #include <unordered_map>
 #include <functional>
@@ -76,10 +77,30 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include "schunkErrors.h"
+#include <unordered_map>
 
 namespace canopen{
 
     extern std::chrono::milliseconds syncInterval;
+    extern std::string baudRate;
+
+    /***************************************************************/
+    // Define baudrates variables for accessing as string
+    // this overrrides the definitions from the libpcan.h
+    /**************************************************************/
+    //static std::map<std::string, uint16_t> baudrates;
+
+    static std::map<std::string, uint32_t> baudrates = {
+        {"1M" , CAN_BAUD_1M},
+        {"500K" , CAN_BAUD_500K},
+        {"250K" , CAN_BAUD_250K},
+        {"125K" , CAN_BAUD_125K},
+        {"100K" , CAN_BAUD_100K},
+        {"50K" , CAN_BAUD_50K},
+        {"20K" , CAN_BAUD_20K},
+        {"10K" , CAN_BAUD_10K},
+        {"5K" , CAN_BAUD_5K}
+    };
 
     /***************************************************************/
     //		    define classes and structs
@@ -90,6 +111,8 @@ namespace canopen{
         private:
 
             uint8_t CANid_;
+            double conversion_factor_;
+            double offset_;
             std::string NMTState_;
             std::string motorState_;
             std::string deviceFile_;
@@ -104,7 +127,11 @@ namespace canopen{
             std::vector<uint16_t> product_code_;
             uint16_t revision_number_;
 
+            std::string error_register_;
+            std::string manufacturer_error_register_;
+
             bool initialized_;
+            bool nmt_init_;
             bool driveReferenced_;
             bool ip_mode_active_;
             bool homingError_;
@@ -115,6 +142,10 @@ namespace canopen{
             std::chrono::milliseconds timeStamp_msec_;
             std::chrono::microseconds timeStamp_usec_;
 
+            int8_t modes_of_operation_display_;
+
+            bool hardware_limit_positive_;
+            bool hardware_limit_negative_;
 
 
             bool ready_switch_on_;
@@ -135,12 +166,13 @@ namespace canopen{
             bool man_specific1_;
             bool man_specific2_;
 
+            double temperature_;
 
         public:
 
             Device() {};
 
-            Device(uint8_t CANid):
+            Device(uint16_t CANid):
                 CANid_(CANid),
                 desiredVel_(0),
                 actualVel_(0),
@@ -148,9 +180,10 @@ namespace canopen{
                 actualPos_(0),
                 initialized_(false),
                 NMTState_("START_UP"),
-                motorState_("START_UP") {};
+                motorState_("START_UP"),
+                nmt_init_(false) {};
 
-            Device(uint8_t CANid, std::string name, std::string group, std::string bus):
+            Device(uint16_t CANid, std::string name, std::string group, std::string bus):
                 CANid_(CANid),
                 name_(name),
                 group_(group),
@@ -159,11 +192,31 @@ namespace canopen{
                 actualVel_(0),
                 desiredPos_(0),
                 actualPos_(0),
-                initialized_(false) {};
+                initialized_(false),
+                nmt_init_(false) {};
 
+            Device(uint16_t CANid, std::string name, std::string group, std::string bus, double conversion_factor, double offsets):
+                CANid_(CANid),
+                name_(name),
+                group_(group),
+                deviceFile_(bus),
+                conversion_factor_(conversion_factor),
+                offset_(offsets),
+                desiredVel_(0),
+                actualVel_(0),
+                desiredPos_(0),
+                actualPos_(0),
+                initialized_(false),
+                nmt_init_(false) {};
+
+            bool getNMTInit(){
+                return nmt_init_;
+            }
+            
             std::string getNMTState(){
                 return NMTState_;
             }
+            
             std::string getMotorState(){
                 return motorState_;
             }
@@ -178,6 +231,10 @@ namespace canopen{
 
             std::vector<char> getManufacturerDevName(){
                 return manufacturer_device_name_;
+            }
+
+           std::string getManufactureErrorRegister(){
+                return manufacturer_error_register_;
             }
 
             std::vector<uint16_t> getVendorID(){
@@ -195,6 +252,11 @@ namespace canopen{
             uint8_t getCANid(){
                 return CANid_;
             }
+
+            double getConversionFactor(){
+                return conversion_factor_;
+            }
+
             std::string getDeviceFile(){
                 return deviceFile_;
             }
@@ -204,6 +266,7 @@ namespace canopen{
             std::string getName(){
                 return name_;
             }
+
             bool getInitialized(){
                 return initialized_;
             }
@@ -211,6 +274,10 @@ namespace canopen{
 
             bool getVoltageEnabled(){
                 return volt_enable_;
+            }
+
+            double getDriverTemperature(){
+                return temperature_;
             }
 
             bool getReadySwitchOn(){
@@ -273,8 +340,27 @@ namespace canopen{
                 return homingError_;
             }
 
+
+            bool getNegativeLimit(){
+                return hardware_limit_negative_;
+            }
+
+            bool getPositiveLimit(){
+                return hardware_limit_positive_;
+            }
+
             bool getFault(){
                 return fault_;
+            }
+
+
+            int8_t getCurrentModeofOperation()
+            {
+                return modes_of_operation_display_;
+            }
+
+            std::string getErrorRegister(){
+                return error_register_;
             }
 
             bool getIPMode(){
@@ -311,9 +397,14 @@ namespace canopen{
                 actualPos_ = pos;
             }
 
+            void setConversionFactor(double conversion_factor){
+                conversion_factor_ = conversion_factor;
+            }
+
             void setDesiredPos(double pos){
                 desiredPos_ = pos;
             }
+
 
             void setActualVel(double vel){
                 actualVel_ = vel;
@@ -360,6 +451,10 @@ namespace canopen{
 
             void setVoltageEnabled(bool voltage_enabled){
                 volt_enable_ = voltage_enabled;
+            }
+
+            void setDriverTemperature(double temperature){
+                temperature_ = temperature;
             }
 
             void setReadySwitchON(bool r_switch_on){
@@ -421,8 +516,35 @@ namespace canopen{
                 op_specific_ = opspec0;
             }
 
+            void setPositiveLimit(bool pos_limit){
+                hardware_limit_positive_ = pos_limit;
+            }
+
+
+            void setNegativeLimit(bool neg_limit){
+                hardware_limit_negative_ = neg_limit;
+            }
+            
+            void setNMTInit(bool nmt_limit)
+            {
+                nmt_init_ = nmt_limit;
+            }
+
             void setFault(bool fault){
                 fault_ = fault;
+            }
+
+            void setCurrentModeofOperation(int8_t mode_display)
+            {
+                modes_of_operation_display_ = mode_display;
+            }
+
+            void setErrorRegister(std::string error_register){
+                error_register_ = error_register;
+            }
+
+            void setManufacturerErrorRegister(std::string manufacturer_error_register){
+                manufacturer_error_register_ = manufacturer_error_register;
             }
 
             void setIPMode(bool ip_mode){
@@ -458,6 +580,7 @@ namespace canopen{
 
             std::vector<uint8_t> CANids_;
             std::vector<std::string> names_;
+            bool initialized_;
 
         public:
 
@@ -468,7 +591,9 @@ namespace canopen{
 
             DeviceGroup(std::vector<uint8_t> CANids, std::vector<std::string> names):
                 CANids_(CANids),
-                names_(names) {};
+                names_(names),
+                initialized_(false) {};
+
 
             std::vector<uint8_t> getCANids(){
                 return CANids_;
@@ -477,6 +602,15 @@ namespace canopen{
             std::vector<std::string> getNames(){
                 return names_;
             }
+
+            void setInitialized(bool initialized){
+                initialized_ = initialized;
+            }
+
+            bool getInitialized(){
+                return initialized_;
+            }
+
 
             std::vector<double> getActualPos() {
                     std::vector<double> actualPos;
@@ -542,8 +676,9 @@ namespace canopen{
         return static_cast<double>(static_cast<double>(alpha)/360000.0*2*M_PI);
     }
 
-    void statusword_incoming(uint8_t CANid, BYTE data[8]);
-    void errorword_incoming(uint8_t CANid, BYTE data[1]);
+    void sdo_incoming(uint8_t CANid, BYTE data[8]);
+    void errorword_incoming(uint8_t CANid, BYTE data[8]);
+    void manufacturer_incoming(uint8_t CANid, BYTE data[8]);
 
     extern std::map<std::string, DeviceGroup> deviceGroups;	// DeviceGroup name -> DeviceGroup object
     extern HANDLE h;
@@ -561,33 +696,62 @@ namespace canopen{
     /***************************************************************/
     //	define get errors functions
     /***************************************************************/
+    void makeRPDOMapping(int object, std::vector<std::string> registers, std::vector<int> sizes, u_int8_t sync_type);
+    void disableRPDO(int object);
+    void clearRPDOMapping(int object);
+    void enableRPDO(int object);
+
+    void setObjects();
+
+    void makeTPDOMapping(int object, std::vector<std::string> registers, std::vector<int> sizes, u_int8_t sync_type);
+    void disableTPDO(int object);
+    void clearTPDOMapping(int object);
+    void enableTPDO(int object);
+
+    void pdoChanged();
 
     void getErrors(uint16_t CANid);
-    std::vector<char> obtainManSWVersion(uint16_t CANid, TPCANRdMsg* m);
-    std::vector<char> obtainManHWVersion(uint16_t CANid, TPCANRdMsg* m);
-    std::vector<char> obtainManDevName(uint16_t CANid, TPCANRdMsg* m);
-    std::vector<uint16_t> obtainVendorID(uint16_t CANid, TPCANRdMsg* m);
-    uint16_t obtainRevNr(uint16_t CANid, TPCANRdMsg* m);
-    std::vector<uint16_t> obtainProdCode(uint16_t CANid, TPCANRdMsg* m);
-    void readErrorsRegister(uint16_t CANid, TPCANRdMsg *m);
-    void readManErrReg(uint16_t CANid, TPCANRdMsg *m);
+    std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
+    std::vector<char> obtainManHWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
+    std::vector<char> obtainManDevName(uint16_t CANid, int size_name);
+    std::vector<uint16_t> obtainVendorID(uint16_t CANid);
+    uint16_t obtainRevNr(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
+    std::vector<uint16_t> obtainProdCode(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
+    void readErrorsRegister(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
+    void readManErrReg(uint16_t CANid);
 
 
     /***************************************************************/
     //	define init and recover variables and functions
     /***************************************************************/
 
+    extern bool sdo_protect;
+    extern BYTE protect_msg[];
+
     extern bool atFirstInit;
     extern bool recover_active;
+    extern bool no_position;
+    extern bool halt_active;
 
-    bool openConnection(std::string devName);
-    void init(std::string deviceFile, std::chrono::milliseconds syncInterval);
+    extern bool halt_positive;
+    extern bool halt_negative;
+
+    extern bool use_limit_switch;
+
+    extern uint8_t operation_mode;
+    extern std::string operation_mode_param;
+
+    bool openConnection(std::string devName, std::string baudrate);
+    bool init(std::string deviceFile, std::chrono::milliseconds syncInterval);
     void pre_init();
-    void recover(std::string deviceFile, std::chrono::milliseconds syncInterval);
+    bool recover(std::string deviceFile, std::chrono::milliseconds syncInterval);
     void halt(std::string deviceFile, std::chrono::milliseconds syncInterval);
 
     extern std::function< void (uint16_t CANid, double positionValue) > sendPos;
+    extern std::function< void (uint16_t CANid, double positionValue, double velocityValue) > sendPosPPMode;
+    extern std::function< void (uint16_t CANid, double velocityValue) > sendVel;
     extern std::function< void (uint16_t CANid) > geterrors;
+
 
     /***************************************************************/
     //	define NMT constants, variables and functions
@@ -601,7 +765,14 @@ namespace canopen{
 
     extern TPCANMsg NMTmsg;
 
-    inline void sendNMT(uint8_t CANid, uint8_t command){
+    inline void sendNMT(uint8_t CANid, uint8_t command)
+    {
+        TPCANMsg NMTmsg;
+        std::memset(&NMTmsg, 0, sizeof(NMTmsg));
+        NMTmsg.ID = 0;
+        NMTmsg.MSGTYPE = 0x00;
+        NMTmsg.LEN = 2;
+
         //std::cout << "Sending NMT. CANid: " << (uint16_t)CANid << "\tcommand: " << (uint16_t)command << std::endl;
         NMTmsg.DATA[0] = command;
         NMTmsg.DATA[1] = CANid;
@@ -615,6 +786,13 @@ namespace canopen{
     extern TPCANMsg syncMsg;
 
     inline void sendSync() {
+        TPCANMsg syncMsg;
+        std::memset(&syncMsg, 0, sizeof(syncMsg));
+        syncMsg.ID = 0x80;
+        syncMsg.MSGTYPE = 0x00;
+
+        syncMsg.LEN = 0x00;
+
         CAN_Write(h, &syncMsg);
     }
 
@@ -658,6 +836,7 @@ namespace canopen{
 
     const SDOkey STATUSWORD(0x6041, 0x0);
     const SDOkey ERRORWORD(0x1001, 0x0);
+    const SDOkey DRIVERTEMPERATURE(0x22A2, 0x0);
     const SDOkey MANUFACTURER(0x1002, 0x0);
     const SDOkey MANUFACTURERDEVICENAME(0x1008, 0x0);
     const SDOkey MANUFACTURERHWVERSION(0x1009, 0x0);
@@ -690,10 +869,37 @@ namespace canopen{
     const SDOkey FAULT(0x605E, 0x0);
     const SDOkey MODES(0x6060, 0x0);
 
+    /* Constants for the PDO mapping */
+    const int TPDO1_msg = 0x180;
+    const int TPDO2_msg = 0x280;
+    const int TPDO3_msg = 0x380;
+    const int TPDO4_msg = 0x480;
+
+    const int RPDO1_msg = 0x200;
+    const int RPDO2_msg = 0x300;
+    const int RPDO3_msg = 0x400;
+    const int RPDO4_msg = 0x500;
+
+    const int TSDO = 0x580;
+    const int RSDO = 0x600;
+
+    //TPDO PARAMETERS
+    const SDOkey TPDO(0x1800, 0x0);
+
+    //RPDO PARAMETERS
+    const SDOkey RPDO(0x1400, 0x0);
+
+    //TPDO MAPPING
+    const SDOkey TPDO_map(0x1A00, 0x0);
+
+    //RPDO MAPPING
+    const SDOkey RPDO_map(0x1600, 0x0);
+
     const uint16_t CONTROLWORD_SHUTDOWN = 6;
     const uint16_t CONTROLWORD_QUICKSTOP = 2;
     const uint16_t CONTROLWORD_SWITCH_ON = 7;
     const uint16_t CONTROLWORD_ENABLE_OPERATION = 15;
+    const uint16_t CONTROLWORD_ENABLE_MOVEMENT = 31;
     const uint16_t CONTROLWORD_START_HOMING = 16;
     const uint16_t CONTROLWORD_ENABLE_IP_MODE = 16;
     const uint16_t CONTROLWORD_DISABLE_INTERPOLATED = 7;
@@ -709,17 +915,24 @@ namespace canopen{
     const uint8_t MODES_OF_OPERATION_TORQUE_PROFILE_MODE = 0x4;
     const uint8_t MODES_OF_OPERATION_INTERPOLATED_POSITION_MODE = 0x7;
 
+    static const char * const modesDisplay[] =
+    {"NO_MODE", "PROFILE_POSITION_MODE", "VELOCITY", "PROFILE_VELOCITY_MODE",
+                              "TORQUE_PROFILED_MODE", "RESERVED", "HOMING_MODE", "INTERPOLATED_POSITION_MODE",
+                              "CYCLIC_SYNCHRONOUS_POSITION"};
+
     const int8_t IP_TIME_INDEX_MILLISECONDS = 0xFD;
     const int8_t IP_TIME_INDEX_HUNDREDMICROSECONDS = 0xFC;
     const uint8_t SYNC_TIMEOUT_FACTOR_DISABLE_TIMEOUT = 0;
 
-    void sendSDO(uint8_t CANid, SDOkey sdo);
-    void processSingleSDO(uint8_t CANid, TPCANRdMsg* message);
+    void uploadSDO(uint8_t CANid, SDOkey sdo);
+    void controlPDO(uint8_t CANid, u_int16_t control1, u_int16_t control2);
+    void processSingleSDO(uint8_t CANid, std::shared_ptr<TPCANRdMsg> message);
     void requestDataBlock1(uint8_t CANid);
     void requestDataBlock2(uint8_t CANid);
 
     void sendSDO(uint8_t CANid, SDOkey sdo, uint32_t value);
     void sendSDO(uint8_t CANid, SDOkey sdo, int32_t value);
+    void sendSDO_unknown(uint8_t CANid, SDOkey sdo, int32_t value);
     void sendSDO(uint8_t CANid, SDOkey sdo, uint16_t value);
     void sendSDO(uint8_t CANid, SDOkey sdo, uint8_t value);
 
@@ -730,8 +943,12 @@ namespace canopen{
     void initDeviceManagerThread(std::function<void ()> const& deviceManager);
     void deviceManager();
 
+
     void defaultPDOOutgoing(uint16_t CANid, double positionValue);
+    void defaultPDOOutgoing_interpolated(uint16_t CANid, double positionValue);
     void defaultPDO_incoming(uint16_t CANid, const TPCANRdMsg m);
+    void defaultPDO_incoming_status(uint16_t CANid, const TPCANRdMsg m);
+    void defaultPDO_incoming_pos(uint16_t CANid, const TPCANRdMsg m);
     void defaultEMCY_incoming(uint16_t CANid, const TPCANRdMsg m);
 
     /***************************************************************/
