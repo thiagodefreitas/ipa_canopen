@@ -581,6 +581,7 @@ namespace canopen{
             std::vector<std::string> names_;
             bool initialized_;
             std::string deviceFile_;
+            bool atFirstInit_;
 
         public:
 
@@ -593,7 +594,8 @@ namespace canopen{
                 CANids_(CANids),
                 names_(names),
                 deviceFile_(deviceFile),
-                initialized_(false) {};
+                initialized_(false),
+                atFirstInit_(true) {};
 
 
             std::vector<uint8_t> getCANids(){
@@ -614,7 +616,16 @@ namespace canopen{
                 deviceFile_ = deviceFile;
             }
 
-            void setInitialized(bool initialized){
+            void setInitialized(bool firstInit){
+                atFirstInit_ = firstInit;
+            }
+
+            bool getFirstInit()
+            {
+                return atFirstInit_;
+            }
+
+            void setFirstInit(bool initialized){
                 initialized_ = initialized;
             }
 
@@ -693,6 +704,7 @@ namespace canopen{
 
     extern std::map<std::string, DeviceGroup> deviceGroups;	// DeviceGroup name -> DeviceGroup object
     extern HANDLE h;
+    extern std::vector<std::string> openDeviceFiles;
     extern std::map<SDOkey, std::function<void (uint8_t CANid, BYTE data[8])> > incomingDataHandlers;
     extern std::map<uint16_t, std::function<void (const TPCANRdMsg m)> > incomingPDOHandlers;
     extern std::map<uint16_t, std::function<void (const TPCANRdMsg m)> > incomingEMCYHandlers;
@@ -708,19 +720,19 @@ namespace canopen{
     /***************************************************************/
     //	define get errors functions
     /***************************************************************/
-    void makeRPDOMapping(int object, std::vector<std::string> registers, std::vector<int> sizes, u_int8_t sync_type);
-    void disableRPDO(int object);
-    void clearRPDOMapping(int object);
-    void enableRPDO(int object);
+    void makeRPDOMapping(std::string chainName,int object, std::vector<std::string> registers, std::vector<int> sizes, u_int8_t sync_type);
+    void disableRPDO(std::string chainName, int object);
+    void clearRPDOMapping(std::string chainName,int object);
+    void enableRPDO(std::string chainName,int object);
 
-    void setObjects();
+    void setObjects(std::string chainName);
 
-    void makeTPDOMapping(int object, std::vector<std::string> registers, std::vector<int> sizes, u_int8_t sync_type);
-    void disableTPDO(int object);
-    void clearTPDOMapping(int object);
-    void enableTPDO(int object);
+    void makeTPDOMapping(std::string chainName, int object, std::vector<std::string> registers, std::vector<int> sizes, u_int8_t sync_type);
+    void disableTPDO(std::string chainName, int object);
+    void clearTPDOMapping(std::string chainName, int object);
+    void enableTPDO(std::string chainName, int object);
 
-    void pdoChanged();
+    void pdoChanged(std::string chainName);
 
     void getErrors(uint16_t CANid);
     std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
@@ -755,9 +767,9 @@ namespace canopen{
     bool openConnection(std::string devName, std::string baudrate);
     bool init(std::string chainName, std::chrono::milliseconds syncInterval);
     bool init(std::string chainName, const int8_t mode_of_operation);
-    void pre_init();
-    bool recover(std::string deviceFile, std::chrono::milliseconds syncInterval);
-    void halt(std::string deviceFile, std::chrono::milliseconds syncInterval);
+    void pre_init(std::string chainName);
+    bool recover(std::string chainName, std::chrono::milliseconds syncInterval);
+    void halt(std::string chainName, std::chrono::milliseconds syncInterval);
 
     extern std::function< void (uint16_t CANid, double positionValue) > sendPos;
     extern std::function< void (uint16_t CANid, double positionValue, double velocityValue) > sendPosPPMode;
@@ -788,7 +800,7 @@ namespace canopen{
         //std::cout << "Sending NMT. CANid: " << (uint16_t)CANid << "\tcommand: " << (uint16_t)command << std::endl;
         NMTmsg.DATA[0] = command;
         NMTmsg.DATA[1] = CANid;
-        CAN_Write(h, &NMTmsg);
+        CAN_Write(canopen::h, &NMTmsg);
     }
 
     /***************************************************************/
@@ -805,7 +817,7 @@ namespace canopen{
 
         syncMsg.LEN = 0x00;
 
-        CAN_Write(h, &syncMsg);
+        CAN_Write(canopen::h, &syncMsg);
     }
 
     /***************************************************************/
@@ -953,8 +965,8 @@ namespace canopen{
     //		define PDO protocol functions
     /***************************************************************/
 
-    void initDeviceManagerThread(std::function<void ()> const& deviceManager);
-    void deviceManager();
+    void initDeviceManagerThread(std::string chainName, std::function<void (std::string)> const& deviceManager);
+    void deviceManager(std::string chainName);
 
 
     void defaultPDOOutgoing(uint16_t CANid, double positionValue);

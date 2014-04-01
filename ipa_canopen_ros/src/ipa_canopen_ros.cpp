@@ -112,10 +112,9 @@ bool CANopenInit(cob_srvs::Trigger::Request &req, cob_srvs::Trigger::Response &r
         ROS_INFO("already initialized");
         return true;
     }
-    std::cout << "Coma" << std::endl;
+
     bool init_success = canopen::init(chainName, canopen::syncInterval);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    std::cout << "enda" << std::endl;
 
     for (auto device : canopen::devices)
     {
@@ -235,7 +234,6 @@ void setVel(const brics_actuator::JointVelocities &msg, std::string chainName)
 void readParamsFromParameterServer(ros::NodeHandle n)
 {
     std::string param;
-    ROS_INFO("Successfully parsed urdf fildwewrewrewe", n.getNamespace().c_str());
 
     param = "devices";
     XmlRpc::XmlRpcValue busParams;
