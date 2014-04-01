@@ -96,11 +96,12 @@ bool CANopenInit(cob_srvs::Trigger::Request &req, cob_srvs::Trigger::Response &r
 {
     bool all_initialized = true;
 
-    for (auto device : canopen::devices)
+    for (auto it: canopen::deviceGroups)
     {
-        if (not device.second.getInitialized())
+
+        if (!it.second.getInitialized())
         {
-            all_initialized = false;
+                all_initialized = false;
         }
     }
 
@@ -111,10 +112,10 @@ bool CANopenInit(cob_srvs::Trigger::Request &req, cob_srvs::Trigger::Response &r
         ROS_INFO("already initialized");
         return true;
     }
-
-    bool init_success = canopen::init(deviceFile, canopen::syncInterval);
+    std::cout << "Coma" << std::endl;
+    bool init_success = canopen::init(chainName, canopen::syncInterval);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
+    std::cout << "enda" << std::endl;
 
     for (auto device : canopen::devices)
     {
@@ -234,6 +235,7 @@ void setVel(const brics_actuator::JointVelocities &msg, std::string chainName)
 void readParamsFromParameterServer(ros::NodeHandle n)
 {
     std::string param;
+    ROS_INFO("Successfully parsed urdf fildwewrewrewe", n.getNamespace().c_str());
 
     param = "devices";
     XmlRpc::XmlRpcValue busParams;
@@ -329,7 +331,7 @@ void readParamsFromParameterServer(ros::NodeHandle n)
         for (unsigned int i=0; i<jointNames.size(); i++)
             canopen::devices[ moduleIDs[i] ] = canopen::Device(moduleIDs[i], jointNames[i], chainName, devices[i]);
 
-        canopen::deviceGroups[ chainName ] = canopen::DeviceGroup(moduleIDs, jointNames);
+        canopen::deviceGroups[ chainName ] = canopen::DeviceGroup(moduleIDs, jointNames, devices[0]);
 
     }
 
@@ -502,18 +504,19 @@ int main(int argc, char **argv)
         std::vector <double> positions;
         std::vector <double> desired_positions;
 
-        for (auto device : canopen::devices)
-        {
 
-            double pos = (double)device.second.getActualPos() + joint_limits_->getOffsets()[counter];
-            double des_pos = (double)device.second.getDesiredPos() + joint_limits_->getOffsets()[counter];
-            positions.push_back(pos);
-            desired_positions.push_back(des_pos);
-            counter++;
-        }
 
         for (auto dg : (canopen::deviceGroups))
         {
+            for (auto id : dg.second.getCANids())
+            {
+                double pos = (double)canopen::devices[id].getActualPos() + joint_limits_->getOffsets()[counter];
+                double des_pos = (double)canopen::devices[id].getDesiredPos() + joint_limits_->getOffsets()[counter];
+                positions.push_back(pos);
+                desired_positions.push_back(des_pos);
+                counter++;
+            }
+
             sensor_msgs::JointState js;
             js.name = dg.second.getNames();
             js.header.stamp = ros::Time::now(); // todo: possibly better use timestamp of hardware msg?
@@ -538,129 +541,129 @@ int main(int argc, char **argv)
             counter++;
         }
 
-        // publishing diagnostic messages
-        diagnostic_msgs::DiagnosticArray diagnostics;
-        diagnostic_msgs::DiagnosticStatus diagstatus;
-        std::vector<diagnostic_msgs::DiagnosticStatus> diagstatus_msg;
+//        // publishing diagnostic messages
+//        diagnostic_msgs::DiagnosticArray diagnostics;
+//        diagnostic_msgs::DiagnosticStatus diagstatus;
+//        std::vector<diagnostic_msgs::DiagnosticStatus> diagstatus_msg;
 
-        diagnostic_msgs::KeyValue keyval;
-        std::vector<diagnostic_msgs::KeyValue> keyvalues;
-
-
-
-        diagnostics.status.resize(1);
-
-        for (auto dg : (canopen::devices))
-        {
-            std::string name = dg.second.getName();
-            //ROS_INFO("Name %s", name.c_str() );
-
-            keyval.key = "Node ID";
-            uint16_t node_id = dg.second.getCANid();
-            std::stringstream result;
-            result << node_id;
-            keyval.value = result.str().c_str();
-            keyvalues.push_back(keyval);
-
-            keyval.key = "Device Name";
-            std::vector<char> dev_name = dg.second.getManufacturerDevName();
-            keyval.value = std::string(dev_name.begin(), dev_name.end());
-            keyvalues.push_back(keyval);
-
-            /*
-            keyval.key = "Hardware Version";
-            std::vector<char> manhw = dg.second.getManufacturerHWVersion();
-            keyval.value = std::string(manhw.begin(), manhw.end());
-            keyvalues.push_back(keyval);
-
-            keyval.key = "Software Version";
-            std::vector<char> mansw = dg.second.getManufacturerSWVersion();
-            keyval.value = std::string(mansw.begin(), mansw.end());
-            keyvalues.push_back(keyval);
+//        diagnostic_msgs::KeyValue keyval;
+//        std::vector<diagnostic_msgs::KeyValue> keyvalues;
 
 
 
-            keyval.key = "Vendor ID";
-            std::vector<uint16_t> vendor_id = dg.second.getVendorID();
-            std::stringstream result1;
-            for (auto it : vendor_id)
-            {
-                result1 <<  std::hex << it;
-            }
-            keyval.value = result1.str().c_str();
-            keyvalues.push_back(keyval);
+//        diagnostics.status.resize(1);
 
-            keyval.key = "Revision Number";
-            uint16_t rev_number = dg.second.getRevNumber();
-            std::stringstream result2;
-            result2 << rev_number;
-            keyval.value = result2.str().c_str();
-            keyvalues.push_back(keyval);
+//        for (auto dg : (canopen::devices))
+//        {
+//            std::string name = dg.second.getName();
+//            //ROS_INFO("Name %s", name.c_str() );
 
-            keyval.key = "Product Code";
-            std::vector<uint16_t> prod_code = dg.second.getProdCode();
-            std::stringstream result3;
-            std::copy(prod_code.begin(), prod_code.end(), std::ostream_iterator<uint16_t>(result3, " "));
-            keyval.value = result3.str().c_str();
-            keyvalues.push_back(keyval);
-            */
+//            keyval.key = "Node ID";
+//            uint16_t node_id = dg.second.getCANid();
+//            std::stringstream result;
+//            result << node_id;
+//            keyval.value = result.str().c_str();
+//            keyvalues.push_back(keyval);
 
-            bool error_ = dg.second.getFault();
-            bool initialized_ = dg.second.getInitialized();
+//            keyval.key = "Device Name";
+//            std::vector<char> dev_name = dg.second.getManufacturerDevName();
+//            keyval.value = std::string(dev_name.begin(), dev_name.end());
+//            keyvalues.push_back(keyval);
 
-            if(initialized_)
-            {
-                keyval.key = "Current mode of operation";
-                int8_t mode_display = dg.second.getCurrentModeofOperation();
-                keyval.value = canopen::modesDisplay[mode_display];
-                keyvalues.push_back(keyval);
+//            /*
+//            keyval.key = "Hardware Version";
+//            std::vector<char> manhw = dg.second.getManufacturerHWVersion();
+//            keyval.value = std::string(manhw.begin(), manhw.end());
+//            keyvalues.push_back(keyval);
 
-                keyval.key = "Errors Register";
-                keyval.value = dg.second.getErrorRegister();
-                keyvalues.push_back(keyval);
+//            keyval.key = "Software Version";
+//            std::vector<char> mansw = dg.second.getManufacturerSWVersion();
+//            keyval.value = std::string(mansw.begin(), mansw.end());
+//            keyvalues.push_back(keyval);
 
-                keyval.key = "Current driver temperature";
-                double driver_temperature = dg.second.getDriverTemperature();
-                keyval.value = std::to_string(driver_temperature);
-                keyvalues.push_back(keyval);
-            }
 
-            //ROS_INFO("Fault: %d", error_);
-            //ROS_INFO("Referenced: %d", initialized_);
 
-            // set data to diagnostics
-            if(error_)
-            {
-                diagstatus.level = 2;
-                diagstatus.name = chainNames[0];
-                diagstatus.message = "Fault occured.";
-                diagstatus.values = keyvalues;
-                break;
-            }
-            else
-            {
-                if (initialized_)
-                {
-                    diagstatus.level = 0;
-                    diagstatus.name = chainNames[0];
-                    diagstatus.message = "canopen chain initialized and running";
-                    diagstatus.values = keyvalues;
-                }
-                else
-                {
-                    diagstatus.level = 1;
-                    diagstatus.name = chainNames[0];
-                    diagstatus.message = "canopen chain not initialized";
-                    diagstatus.values = keyvalues;
-                    break;
-                }
-            }
-        }
-        diagstatus_msg.push_back(diagstatus);
-        // publish diagnostic message
-        diagnostics.status = diagstatus_msg;
-        diagnostics.header.stamp = ros::Time::now();
-        diagnosticsPublisher.publish(diagnostics);
+//            keyval.key = "Vendor ID";
+//            std::vector<uint16_t> vendor_id = dg.second.getVendorID();
+//            std::stringstream result1;
+//            for (auto it : vendor_id)
+//            {
+//                result1 <<  std::hex << it;
+//            }
+//            keyval.value = result1.str().c_str();
+//            keyvalues.push_back(keyval);
+
+//            keyval.key = "Revision Number";
+//            uint16_t rev_number = dg.second.getRevNumber();
+//            std::stringstream result2;
+//            result2 << rev_number;
+//            keyval.value = result2.str().c_str();
+//            keyvalues.push_back(keyval);
+
+//            keyval.key = "Product Code";
+//            std::vector<uint16_t> prod_code = dg.second.getProdCode();
+//            std::stringstream result3;
+//            std::copy(prod_code.begin(), prod_code.end(), std::ostream_iterator<uint16_t>(result3, " "));
+//            keyval.value = result3.str().c_str();
+//            keyvalues.push_back(keyval);
+//            */
+
+//            bool error_ = dg.second.getFault();
+//            bool initialized_ = dg.second.getInitialized();
+
+//            if(initialized_)
+//            {
+//                keyval.key = "Current mode of operation";
+//                int8_t mode_display = dg.second.getCurrentModeofOperation();
+//                keyval.value = canopen::modesDisplay[mode_display];
+//                keyvalues.push_back(keyval);
+
+//                keyval.key = "Errors Register";
+//                keyval.value = dg.second.getErrorRegister();
+//                keyvalues.push_back(keyval);
+
+//                keyval.key = "Current driver temperature";
+//                double driver_temperature = dg.second.getDriverTemperature();
+//                keyval.value = std::to_string(driver_temperature);
+//                keyvalues.push_back(keyval);
+//            }
+
+//            //ROS_INFO("Fault: %d", error_);
+//            //ROS_INFO("Referenced: %d", initialized_);
+
+//            // set data to diagnostics
+//            if(error_)
+//            {
+//                diagstatus.level = 2;
+//                diagstatus.name = chainNames[0];
+//                diagstatus.message = "Fault occured.";
+//                diagstatus.values = keyvalues;
+//                break;
+//            }
+//            else
+//            {
+//                if (initialized_)
+//                {
+//                    diagstatus.level = 0;
+//                    diagstatus.name = chainNames[0];
+//                    diagstatus.message = "canopen chain initialized and running";
+//                    diagstatus.values = keyvalues;
+//                }
+//                else
+//                {
+//                    diagstatus.level = 1;
+//                    diagstatus.name = chainNames[0];
+//                    diagstatus.message = "canopen chain not initialized";
+//                    diagstatus.values = keyvalues;
+//                    break;
+//                }
+//            }
+//        }
+//        diagstatus_msg.push_back(diagstatus);
+//        // publish diagnostic message
+//        diagnostics.status = diagstatus_msg;
+//        diagnostics.header.stamp = ros::Time::now();
+//        diagnosticsPublisher.publish(diagnostics);
 
         ros::spinOnce();
         loop_rate.sleep();

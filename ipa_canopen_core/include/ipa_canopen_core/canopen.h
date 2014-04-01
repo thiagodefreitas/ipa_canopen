@@ -580,6 +580,7 @@ namespace canopen{
             std::vector<uint8_t> CANids_;
             std::vector<std::string> names_;
             bool initialized_;
+            std::string deviceFile_;
 
         public:
 
@@ -588,9 +589,10 @@ namespace canopen{
             DeviceGroup(std::vector<uint8_t> CANids):
                 CANids_(CANids) {};
 
-            DeviceGroup(std::vector<uint8_t> CANids, std::vector<std::string> names):
+            DeviceGroup(std::vector<uint8_t> CANids, std::vector<std::string> names,std::string deviceFile):
                 CANids_(CANids),
                 names_(names),
+                deviceFile_(deviceFile),
                 initialized_(false) {};
 
 
@@ -598,8 +600,18 @@ namespace canopen{
                 return CANids_;
             }
 
+            std::string getDeviceFile()
+            {
+                return deviceFile_;
+            }
+
             std::vector<std::string> getNames(){
                 return names_;
+            }
+
+            void setDeviceFile(std::string deviceFile)
+            {
+                deviceFile_ = deviceFile;
             }
 
             void setInitialized(bool initialized){
@@ -741,8 +753,8 @@ namespace canopen{
     extern std::string operation_mode_param;
 
     bool openConnection(std::string devName, std::string baudrate);
-    bool init(std::string deviceFile, std::chrono::milliseconds syncInterval);
-    bool init(std::string deviceFile, const int8_t mode_of_operation);
+    bool init(std::string chainName, std::chrono::milliseconds syncInterval);
+    bool init(std::string chainName, const int8_t mode_of_operation);
     void pre_init();
     bool recover(std::string deviceFile, std::chrono::milliseconds syncInterval);
     void halt(std::string deviceFile, std::chrono::milliseconds syncInterval);

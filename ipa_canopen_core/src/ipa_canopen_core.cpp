@@ -61,6 +61,7 @@
 #include <sstream>
 #include <cstring>
 #include <unordered_map>
+#include <algorithm>
 
 
 namespace canopen
@@ -77,6 +78,7 @@ std::string baudRate;
 std::map<uint8_t, Device> devices;
 std::map<std::string, DeviceGroup> deviceGroups;
 HANDLE h;
+std::vector<std::string> openDeviceFiles;
 std::map<SDOkey, std::function<void (uint8_t CANid, BYTE data[8])> > incomingDataHandlers { { STATUSWORD, sdo_incoming }, { DRIVERTEMPERATURE, sdo_incoming }, { MODES_OF_OPERATION_DISPLAY, sdo_incoming } };
 std::map<SDOkey, std::function<void (uint8_t CANid, BYTE data[8])> > incomingErrorHandlers { { ERRORWORD, errorword_incoming }, { MANUFACTURER, errorword_incoming } };
 std::map<SDOkey, std::function<void (uint8_t CANid, BYTE data[8])> > incomingManufacturerDetails { {MANUFACTURERHWVERSION, manufacturer_incoming}, {MANUFACTURERDEVICENAME, manufacturer_incoming}, {MANUFACTURERSOFTWAREVERSION, manufacturer_incoming} };
@@ -135,7 +137,7 @@ void pre_init()
     }
 }
 
-bool init(std::string deviceFile, const int8_t mode_of_operation)
+bool init(std::string chainName, const int8_t mode_of_operation)
 {
     if(atFirstInit)
     {
@@ -147,17 +149,26 @@ bool init(std::string deviceFile, const int8_t mode_of_operation)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         bool connection_success;
-        connection_success = canopen::openConnection(deviceFile, canopen::baudRate);
+        std::string deviceFile = deviceGroups[chainName].getDeviceFile();
+        std::cout << deviceFile << std::endl;
 
-        if (!connection_success)
+        bool connection_is_available = std::find(openDeviceFiles.begin(), openDeviceFiles.end(), deviceFile) != openDeviceFiles.end();
+
+        if(!connection_is_available)
         {
-            std::cout << "Cannot open CAN device; aborting." << std::endl;
-            exit(EXIT_FAILURE);
+            connection_success = canopen::openConnection(deviceFile, canopen::baudRate);
+
+            if (!connection_success)
+            {
+                std::cout << "Cannot open CAN device; aborting." << std::endl;
+                exit(EXIT_FAILURE);
+            }
+            canopen::initListenerThread(canopen::defaultListener);
         }
         else
         {
 
-                canopen::initListenerThread(canopen::defaultListener);
+
                 canopen::pre_init();
 
                 while(sdo_protect)
@@ -297,9 +308,9 @@ bool init(std::string deviceFile, const int8_t mode_of_operation)
     return true;
 }
 
-bool init(std::string deviceFile, std::chrono::milliseconds syncInterval)
+bool init(std::string chainName, std::chrono::milliseconds syncInterval)
 {
-    bool initialized = init(deviceFile, canopen::MODES_OF_OPERATION_INTERPOLATED_POSITION_MODE);
+    bool initialized = init(chainName, canopen::MODES_OF_OPERATION_INTERPOLATED_POSITION_MODE);
 
     for (auto device : devices)
     {
@@ -310,6 +321,8 @@ bool init(std::string deviceFile, std::chrono::milliseconds syncInterval)
         sendSDO((uint16_t)device.second.getCANid(), canopen::SYNC_TIMEOUT_FACTOR, (uint8_t)canopen::SYNC_TIMEOUT_FACTOR_DISABLE_TIMEOUT);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+
+    deviceGroups[chainName].setInitialized(true);
     return initialized;
 }
 
