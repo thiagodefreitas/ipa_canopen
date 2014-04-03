@@ -28,14 +28,14 @@
  *
  *****************************************************************
  *
- * Redistribution and use in source and binary forms, witcanopen::h or without
+ * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  *
  *     - Redistributions of source code must retain the above copyright
  *       notice, this list of conditions and the following disclaimer. \n
  *     - Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided witcanopen::h the distribution. \n
+ *       documentation and/or other materials provided with the distribution. \n
  *     - Neither the name of the Fraunhofer Institute for Manufacturing
  *       Engineering and Automation (IPA) nor the names of its
  *       contributors may be used to endorse or promote products derived from
@@ -52,7 +52,7 @@
  * GNU Lesser General Public License LGPL for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License LGPL along witcanopen::h this program.
+ * License LGPL along with this program.
  * If not, see <http://www.gnu.org/licenses/>.
  *
  ****************************************************************/
@@ -107,6 +107,7 @@ bool atFirstInit = true;
 
 bool openConnection(std::string devName, std::string baudrate)
 {
+    std::cout << "Opening CONNNETIOOSSOS" << std::endl;
     canopen::h  = LINUX_CAN_Open(devName.c_str(), O_RDWR);
     if (!canopen::h )
         return false;
@@ -187,13 +188,26 @@ bool init(std::string chainName, const int8_t mode_of_operation)
 
         for(auto id : canopen::deviceGroups[chainName].getCANids())
         {
+            std::chrono::time_point<std::chrono::high_resolution_clock> time_start, time_end;
+
+            std::chrono::duration<double> elapsed_seconds;
+
             bool nmt_init = canopen::devices[id].getNMTInit();
             std::cout << "Waiting for Node: " << (uint16_t)id << " to become available" << std::endl;
 
+            time_start = std::chrono::high_resolution_clock::now();
             while(!nmt_init)
             {
+                elapsed_seconds = time_end - time_start;
+
+                if(elapsed_seconds.count() > 5.0)
+                {
+                    std::cout << "Node: " << (uint16_t)id << " is not ready for operation. Please check for eventual problems." << std::endl;
+                    exit(EXIT_FAILURE);
+                }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 nmt_init = canopen::devices[id].getNMTInit();
+                time_end = std::chrono::high_resolution_clock::now();
             }
             std::cout << "Node: " << (uint16_t)id << " is now available" << std::endl;
         }
@@ -272,8 +286,8 @@ bool init(std::string chainName, const int8_t mode_of_operation)
 
     }
 
-     recover_active = false;
-     canopen::setObjects(chainName);
+    recover_active = false;
+    canopen::setObjects(chainName);
 
 
     for (auto id : canopen::deviceGroups[chainName].getCANids())
@@ -773,8 +787,8 @@ void deviceManager(std::string chainName)
 
     while (true)
     {
-        end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed_seconds = end-start;
+        time_end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed_seconds = time_end-time_start;
 
         auto tic = std::chrono::high_resolution_clock::now();
         if (!recover_active)
@@ -783,7 +797,7 @@ void deviceManager(std::string chainName)
             {
                 if(elapsed_seconds.count() > 2)
                 {
-                    start = std::chrono::high_resolution_clock::now();
+                    time_start = std::chrono::high_resolution_clock::now();
                     canopen::uploadSDO(id, DRIVERTEMPERATURE);
                     getErrors(id);
                     readManErrReg(id);
@@ -1143,9 +1157,9 @@ void defaultListener()
         // incoming EMCY
         //else if (m.Msg.ID >= 0x081 && m.Msg.ID <= 0x0FF)
         //{
-         //   std::cout << std::hex << "EMCY received:  " << (uint16_t)m.Msg.ID << "  " << (uint16_t)m.Msg.DATA[0] << " " << (uint16_t)m.Msg.DATA[1] << " " << (uint16_t)m.Msg.DATA[2] << " " << (uint16_t)m.Msg.DATA[3] << " " << (uint16_t)m.Msg.DATA[4] << " " << (uint16_t)m.Msg.DATA[5] << " " << (uint16_t)m.Msg.DATA[6] << " " << (uint16_t)m.Msg.DATA[7] << std::endl;
-          //  if (canopen::incomingEMCYHandlers.find(m.Msg.ID) != canopen::incomingEMCYHandlers.end())
-           //     canopen::incomingEMCYHandlers[m.Msg.ID](m);
+        //   std::cout << std::hex << "EMCY received:  " << (uint16_t)m.Msg.ID << "  " << (uint16_t)m.Msg.DATA[0] << " " << (uint16_t)m.Msg.DATA[1] << " " << (uint16_t)m.Msg.DATA[2] << " " << (uint16_t)m.Msg.DATA[3] << " " << (uint16_t)m.Msg.DATA[4] << " " << (uint16_t)m.Msg.DATA[5] << " " << (uint16_t)m.Msg.DATA[6] << " " << (uint16_t)m.Msg.DATA[7] << std::endl;
+        //  if (canopen::incomingEMCYHandlers.find(m.Msg.ID) != canopen::incomingEMCYHandlers.end())
+        //     canopen::incomingEMCYHandlers[m.Msg.ID](m);
         //}
 
         // incoming TIME
@@ -1193,14 +1207,14 @@ void defaultListener()
             std::map<uint8_t,Device>::const_iterator search = canopen::devices.find(CANid);
             if(search != canopen::devices.end())
             {
-                    std::cout << "Found " << (u_int16_t)search->first << "\n";
-                    std::cout << "Initializing..." << "\n";
-                    canopen::devices[CANid].setNMTInit(true);
+                std::cout << "Found " << (u_int16_t)search->first << "\n";
+                std::cout << "Initializing..." << "\n";
+                canopen::devices[CANid].setNMTInit(true);
             }
             else
             {
-                   std::cout << "Not found" << std::endl;
-                   std::cout << "Ignoring" << std::endl;
+                std::cout << "Node:" << CANid << " could not be found on the required devices list." << std::endl;
+                std::cout << "Ignoring" << std::endl;
             }
 
         }
@@ -1274,8 +1288,8 @@ void errorword_incoming(uint8_t CANid, BYTE data[8])
         uint16_t classification = data[5];
 
         str_stream << "manufacturer_status_register=0x" << std::hex << int(classification) << int(code) <<
-                     ": code=0x" << std::hex << int( code ) << " (" << errorsCode[int(code)] << "),"
-                  << ", classification=0x" << std::hex << int( classification ) << std::dec;
+                      ": code=0x" << std::hex << int( code ) << " (" << errorsCode[int(code)] << "),"
+                   << ", classification=0x" << std::hex << int( classification ) << std::dec;
         if ( classification == 0x88 )
             str_stream << " (CMD_ERROR)";
         if ( classification == 0x89 )

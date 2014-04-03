@@ -78,6 +78,8 @@ typedef boost::function<bool(cob_srvs::Trigger::Request&, cob_srvs::Trigger::Res
 typedef boost::function<void(const brics_actuator::JointVelocities&)> JointVelocitiesType;
 typedef boost::function<bool(cob_srvs::SetOperationMode::Request&, cob_srvs::SetOperationMode::Response&)> SetOperationModeCallbackType;
 
+std::vector<int> motor_direction;
+
 struct BusParams
 {
     std::string baudrate;
@@ -219,7 +221,7 @@ void setVel(const brics_actuator::JointVelocities &msg, std::string chainName)
         for (auto device : canopen::devices)
         {
 
-            double pos = (double)device.second.getDesiredPos();// + joint_limits_->getOffsets()[counter];
+            double pos = ((double)device.second.getDesiredPos() + joint_limits_->getOffsets()[counter])*motor_direction[counter];
             positions.push_back(pos);
             counter++;
         }
@@ -235,7 +237,8 @@ void readParamsFromParameterServer(ros::NodeHandle n)
 {
     std::string param;
 
-    param = "devices";
+    param = n.getUnresolvedNamespace() + "/devices";
+    std::cout << "devices";
     XmlRpc::XmlRpcValue busParams;
     if (n.hasParam(param))
     {
@@ -259,7 +262,7 @@ void readParamsFromParameterServer(ros::NodeHandle n)
     }
 
 
-    param = "chains";
+    param = "/chains";
     XmlRpc::XmlRpcValue chainNames_XMLRPC;
     if (n.hasParam(param))
     {
@@ -292,6 +295,33 @@ void readParamsFromParameterServer(ros::NodeHandle n)
         for (int i=0; i<jointNames_XMLRPC.size(); i++)
             jointNames.push_back(static_cast<std::string>(jointNames_XMLRPC[i]));
 
+        param = "/" + chainName + "/motor_direction";
+        XmlRpc::XmlRpcValue motorDirections_XMLRPC;
+        if (n.hasParam(param))
+        {
+            n.getParam(param, motorDirections_XMLRPC);
+        }
+        else
+        {
+            ROS_ERROR("Parameter %s not set, shutting down node...", param.c_str());
+            n.shutdown();
+        }
+
+        // TODO: check for content of motorDirections
+        for (int i=0; i<motorDirections_XMLRPC.size(); i++)
+        {
+            int this_direction = static_cast<int>(motorDirections_XMLRPC[i]);
+
+            if(this_direction != 1 && this_direction != -1 )
+            {
+                ROS_ERROR("The value %d is not valid for the motor direction.Please use 1 or -1. Shutting down node...", this_direction);
+                n.shutdown();
+                exit(EXIT_FAILURE);
+            }
+
+            motor_direction.push_back(this_direction);
+        }
+
         param = "/" + chainName + "/module_ids";
         XmlRpc::XmlRpcValue moduleIDs_XMLRPC;
         if (n.hasParam(param))
@@ -304,7 +334,7 @@ void readParamsFromParameterServer(ros::NodeHandle n)
             n.shutdown();
         }
 
-        // TODO: check for content of muduleIDs
+        // TODO: check for content of moduleIDs
         std::vector<uint8_t> moduleIDs;
         for (int i=0; i<moduleIDs_XMLRPC.size(); i++)
             moduleIDs.push_back(static_cast<int>(moduleIDs_XMLRPC[i]));
@@ -457,10 +487,12 @@ int main(int argc, char **argv)
     // todo: allow identical module IDs of modules when they are on different CAN buses
 
 
-    ros::init(argc, argv, "canopen_ros");
+    ros::init(argc, argv, "ipa_canopen");
     ros::NodeHandle n(""); // ("~");
 
+    std::cout << "reading Parameters" << std::endl;
     readParamsFromParameterServer(n);
+    std::cout << "reading Parameters2" << std::endl;
 
     std::cout << "Sync Interval" << buses.begin()->second.syncInterval << std::endl;
     canopen::syncInterval = std::chrono::milliseconds( buses.begin()->second.syncInterval );
@@ -537,8 +569,8 @@ int main(int argc, char **argv)
         {
             for (auto id : dg.second.getCANids())
             {
-                double pos = (double)canopen::devices[id].getActualPos() + joint_limits_->getOffsets()[counter];
-                double des_pos = (double)canopen::devices[id].getDesiredPos() + joint_limits_->getOffsets()[counter];
+                double pos = ((double)canopen::devices[id].getActualPos() + joint_limits_->getOffsets()[counter])*motor_direction[counter];
+                double des_pos = ((double)canopen::devices[id].getDesiredPos() + joint_limits_->getOffsets()[counter])*motor_direction[counter];
                 positions.push_back(pos);
                 desired_positions.push_back(des_pos);
                 counter++;
