@@ -56,7 +56,7 @@
  * If not, see <http://www.gnu.org/licenses/>.
  *
  ****************************************************************/
-
+//!If not defined already, define CANOPEN_H
 #ifndef CANOPEN_H
 #define CANOPEN_H
 
@@ -73,22 +73,23 @@
 #include <math.h>
 #include <libpcan.h>
 #include <utility>
-#include <fcntl.h>    // for O_RDWR
+#include <fcntl.h>    //! for O_RDWR
 #include <stdint.h>
 #include <inttypes.h>
 #include "schunkErrors.h"
 #include <unordered_map>
 
 namespace canopen{
-
+	//! syncInterval and baudRate Can be used in other files as well 
     extern std::chrono::milliseconds syncInterval;
     extern std::string baudRate;
 
     /***************************************************************/
-    // Define baudrates variables for accessing as string
-    // this overrrides the definitions from the libpcan.h
+    /*! Define baudrates variables for accessing as string
+       this overrrides the definitions from the libpcan.h*/
     /**************************************************************/
-    //static std::map<std::string, uint16_t> baudrates;
+    
+    //!static std::map<std::string, uint16_t> baudrates;
 
     static std::map<std::string, uint32_t> baudrates = {
         {"1M" , CAN_BAUD_1M},
@@ -103,11 +104,12 @@ namespace canopen{
     };
 
     /***************************************************************/
-    //		    define classes and structs
+    //!		    define classes and structs
     /***************************************************************/
 
     class Device{
-
+		
+		//!Member variables of class Device defined as private variables
         private:
 
             uint8_t CANid_;
@@ -135,10 +137,10 @@ namespace canopen{
             bool driveReferenced_;
             bool ip_mode_active_;
             bool homingError_;
-            double actualPos_;		// unit = rad
-            double desiredPos_;		// unit = rad
-            double actualVel_;		// unit = rad/sec
-            double desiredVel_;		// unit = rad/sec
+            double actualPos_;		//! unit = rad
+            double desiredPos_;		//! unit = rad
+            double actualVel_;		//! unit = rad/sec
+            double desiredVel_;		//! unit = rad/sec
             std::chrono::milliseconds timeStamp_msec_;
             std::chrono::microseconds timeStamp_usec_;
 
@@ -169,9 +171,10 @@ namespace canopen{
             double temperature_;
 
         public:
-
+			//! Default constructor for the class Device
             Device() {};
-
+			
+			//! Constructor for class Device which initialises the CANid of the Device to the value passed and others to default values
             Device(uint16_t CANid):
                 CANid_(CANid),
                 desiredVel_(0),
@@ -182,7 +185,8 @@ namespace canopen{
                 NMTState_("START_UP"),
                 motorState_("START_UP"),
                 nmt_init_(false) {};
-
+			
+			//!Constructor for class Device which initialises the CANid, device name, group name, file name of the Device with the values passed and others to the default values
             Device(uint16_t CANid, std::string name, std::string group, std::string bus):
                 CANid_(CANid),
                 name_(name),
@@ -194,7 +198,9 @@ namespace canopen{
                 actualPos_(0),
                 initialized_(false),
                 nmt_init_(false) {};
-
+			
+			/*!Constructor for class Device which initialises the CANid, device name, group name, file name,conversion factor and offset values of the Device 
+			  with the values passed others to the default values*/
             Device(uint16_t CANid, std::string name, std::string group, std::string bus, double conversion_factor, double offsets):
                 CANid_(CANid),
                 name_(name),
@@ -209,6 +215,10 @@ namespace canopen{
                 initialized_(false),
                 nmt_init_(false) {};
 
+			/*! Defining the getters functions for private parameters of the class.
+			 * Each functions returns the corresponding variable for which it is a getter function
+			 * This provides a method to access the private members from outside the class */
+			   
             bool getNMTInit(){
                 return nmt_init_;
             }
@@ -392,6 +402,10 @@ namespace canopen{
             inline std::chrono::microseconds getTimeStamp_usec(){
                 return timeStamp_usec_;
             }
+            
+            
+            /*! Defining Setters for the various private parameters of the class Device
+             * Each function takes the value of the parameter to be set as the function parameter and sets the corresponding variable to the value passed */
 
             void setActualPos(double pos){
                 actualPos_ = pos;
@@ -559,14 +573,19 @@ namespace canopen{
                 initialized_ = initialized;
             }
 
+			//! Function to update the desired position
+			/*! The function has no parameters and it does not return any value
+			 * The desired position is calculated by uding the desired velocity and syncinterval count*/
             void updateDesiredPos(){
                 desiredPos_ += desiredVel_ * (syncInterval.count() / 1000.0);
             }
-
+            
+			//! Setter function for timestamp in msec
             void setTimeStamp_msec(std::chrono::milliseconds timeStamp){
                 timeStamp_msec_ = timeStamp;
             }
-
+            
+			//! Setter function for timestamp in usec
             void setTimeStamp_usec(std::chrono::microseconds timeStamp){
                 timeStamp_usec_ = timeStamp;
             }
@@ -577,32 +596,39 @@ namespace canopen{
     class DeviceGroup{
 
         private:
-
+			//!Dynamic array definition for storing the CANids and the name of the devices in a device group
             std::vector<uint8_t> CANids_;
             std::vector<std::string> names_;
+            
             bool initialized_;
 
         public:
-
+			//!Default constructor for the class DeviceGroup
             DeviceGroup() {};
 
+			//!Parameterised constructor for the calss DeviceGroup which initialises the CANids of the devices on the device group
             DeviceGroup(std::vector<uint8_t> CANids):
                 CANids_(CANids) {};
 
+			//!Parameterised constructor for the calss DeviceGroup which initialises the CANids, device names and initialised status of the devices on the device group
             DeviceGroup(std::vector<uint8_t> CANids, std::vector<std::string> names):
                 CANids_(CANids),
                 names_(names),
                 initialized_(false) {};
 
-
+			//!Getter function for getting the CANids
+			/* The function takes no parameters and returns the CANids of the devices*/
             std::vector<uint8_t> getCANids(){
                 return CANids_;
             }
 
+			//!Getter function for getting the device names
             std::vector<std::string> getNames(){
                 return names_;
             }
 
+			//! Defining getter and setter function for the initialization status variable
+			
             void setInitialized(bool initialized){
                 initialized_ = initialized;
             }
@@ -611,105 +637,128 @@ namespace canopen{
                 return initialized_;
             }
 
-
+			//!Defining various member functions of the class DeviceGroup
+			
+			//!Function to get the actual position of the devices in the Device group
+			/*! Function take no parameters and it returns the actual position for all devices in a group*/
             std::vector<double> getActualPos() {
                     std::vector<double> actualPos;
                     for (uint8_t CANid : CANids_)
                     actualPos.push_back(devices[CANid].getActualPos());
                     return actualPos;
                 }
-
+			//!Function to get the desired position of the devices in the Device group
+			/*! Function take no parameters and it returns the desired position for all devices in a group*/
                 std::vector<double> getDesiredPos() {
                     std::vector<double> desiredPos;
                     for (auto CANid : CANids_)
                         desiredPos.push_back(devices[CANid].getDesiredPos());
                     return desiredPos;
                 }
-
+			//!Function to get the actual velocity of the devices in the Device group
+			/*! Function take no parameters and it returns the actual velocities of all devices in a group*/
             std::vector<double> getActualVel() {
                 std::vector<double> actualVel;
                 for (auto CANid : CANids_)
                     actualVel.push_back(devices[CANid].getActualVel());
                 return actualVel;
             }
-
+			//!Function to get the desired velocity of the devices in the Device group
+			/*! Function take no parameters and it returns the  desired velocities of all devices in a group*/
             std::vector<double> getDesiredVel() {
                 std::vector<double> desiredVel;
                 for (auto CANid : CANids_)
                     desiredVel.push_back(devices[CANid].getDesiredVel());
                 return desiredVel;
             }
-
+			
+			//!Setter function for setting the desired velocities of the devices in the Device Group
+			/*! Function takes an array of velocities for different devices in the group and sets the desired velocity of the devices with these values */
             void setVel(std::vector<double> velocities) {
                 for (unsigned int i=0; i<velocities.size(); i++) {
                     devices[CANids_[i]].setDesiredVel(velocities[i]);
                 }
                 }
     };
-
+	//!Declaration of a structure which defines the index and sub-index of the Objext Dictionary of a device
     struct SDOkey{
-        uint16_t index;
-        uint8_t subindex;
+        uint16_t index; 	//!16 bit index
+        uint8_t subindex;	//!8 bit index
 
+		//! Inline function which gets the index and the subindex from the incoming TPCANRdMsg message
         inline SDOkey(TPCANRdMsg m):
             index((m.Msg.DATA[2] << 8) + m.Msg.DATA[1]),
             subindex(m.Msg.DATA[3]) {};
-
+		
+		//!Constructor for the structure SDOkey which initialises the index and subindex of the Object Dictionary
         inline SDOkey(uint16_t i, uint8_t s):
             index(i),
             subindex(s) {};
     };
 
     /***************************************************************/
-    //		define global variables and functions
+    //!		define global variables and functions
     /***************************************************************/
 
     inline bool operator<(const SDOkey &a, const SDOkey&b) {
             return a.index < b.index || (a.index == b.index && a.subindex < b.subindex);
     }
 
+	//! Inline function to convert position in radians to degree
     inline int32_t rad2mdeg(double phi){
         return static_cast<int32_t>(round(phi/(2*M_PI)*360000.0));
     }
-
+	//! Inline function to convert position in degree to radians
     inline double mdeg2rad(int32_t alpha){
         return static_cast<double>(static_cast<double>(alpha)/360000.0*2*M_PI);
     }
 
+	//! Evaluating the incoming SDO status word, error word and manufacturer information using functions defined in canopen.cpp
     void sdo_incoming(uint8_t CANid, BYTE data[8]);
     void errorword_incoming(uint8_t CANid, BYTE data[8]);
     void manufacturer_incoming(uint8_t CANid, BYTE data[8]);
 
-    extern std::map<std::string, DeviceGroup> deviceGroups;	// DeviceGroup name -> DeviceGroup object
+	
+    extern std::map<std::string, DeviceGroup> deviceGroups;	//! DeviceGroup name -> DeviceGroup object
+    //! Create an instance h of HANDLE with which various libpcan functions can be used
     extern HANDLE h;
+    
+    //! Defining various maps that map the SDO key to incoming data handlers and CANids to incoming PDO handlers and incoming emergency handlers
     extern std::map<SDOkey, std::function<void (uint8_t CANid, BYTE data[8])> > incomingDataHandlers;
     extern std::map<uint16_t, std::function<void (const TPCANRdMsg m)> > incomingPDOHandlers;
     extern std::map<uint16_t, std::function<void (const TPCANRdMsg m)> > incomingEMCYHandlers;
 
     /***************************************************************/
-    //			define state machine functions
+    //!			define state machine functions
     /***************************************************************/
-
+	//! Declaration of the network management function and motor state machine function
+	/*! These functions are defined in canopen.cpp to set the next target state for each respectively*/
     void setNMTState(uint16_t CANid, std::string targetState);
     void setMotorState(uint16_t CANid, std::string targetState);
 
     /***************************************************************/
-    //	define get errors functions
+    //!	define get errors functions
     /***************************************************************/
+    
+    //!Make a RPDO mapping and enable it
     void makeRPDOMapping(int object, std::vector<std::string> registers, std::vector<int> sizes, u_int8_t sync_type);
     void disableRPDO(int object);
     void clearRPDOMapping(int object);
     void enableRPDO(int object);
-
+	
+	//!Function to set the default values of Profile velocity, Max. Profile velocity,Profile acceleration,Max. Acceleration, Max. Deceleration and End velocity
     void setObjects();
 
+	//!Make a TPDO mapping and enable it
     void makeTPDOMapping(int object, std::vector<std::string> registers, std::vector<int> sizes, u_int8_t sync_type);
     void disableTPDO(int object);
     void clearTPDOMapping(int object);
     void enableTPDO(int object);
 
+	//!Confirm that the PDO mapping was changed
     void pdoChanged();
-
+	
+	//! Get the error word from the device with given CANid
     void getErrors(uint16_t CANid);
     std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
     std::vector<char> obtainManHWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
@@ -717,12 +766,13 @@ namespace canopen{
     std::vector<uint16_t> obtainVendorID(uint16_t CANid);
     uint16_t obtainRevNr(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
     std::vector<uint16_t> obtainProdCode(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
+    //! Declaration of functions to read the error register and the manufacturer specific error registers
     void readErrorsRegister(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
     void readManErrReg(uint16_t CANid);
 
 
     /***************************************************************/
-    //	define init and recover variables and functions
+    //!	define init and recover variables and functions
     /***************************************************************/
 
     extern bool sdo_protect;
@@ -754,17 +804,24 @@ namespace canopen{
 
 
     /***************************************************************/
-    //	define NMT constants, variables and functions
+    //!	define NMT constants, variables and functions
     /***************************************************************/
-
+	//! Declare the network management states
     const uint8_t NMT_START_REMOTE_NODE = 0x01;
     const uint8_t NMT_STOP_REMOTE_NODE = 0x02;
     const uint8_t NMT_ENTER_PRE_OPERATIONAL = 0x80;
     const uint8_t NMT_RESET_NODE = 0x81;
     const uint8_t NMT_RESET_COMMUNICATION = 0x82;
 
+	//! Define a TPCANMsg called NMTmsg for handling Network Management Functions
+	/*! TPCANMsg has the following messages 
+	    BYTE 	DATA [8]
+		DWORD 	ID
+		BYTE 	LEN
+		BYTE 	MSGTYPE*/
     extern TPCANMsg NMTmsg;
-
+	
+	//! Inline function to send the network management command in a TPCANMsg to the device with specific CANid
     inline void sendNMT(uint8_t CANid, uint8_t command)
     {
         TPCANMsg NMTmsg;
@@ -773,18 +830,19 @@ namespace canopen{
         NMTmsg.MSGTYPE = 0x00;
         NMTmsg.LEN = 2;
 
-        //std::cout << "Sending NMT. CANid: " << (uint16_t)CANid << "\tcommand: " << (uint16_t)command << std::endl;
+        //!std::cout << "Sending NMT. CANid: " << (uint16_t)CANid << "\tcommand: " << (uint16_t)command << std::endl;
         NMTmsg.DATA[0] = command;
         NMTmsg.DATA[1] = CANid;
         CAN_Write(h, &NMTmsg);
     }
 
     /***************************************************************/
-    //	define SYNC variables and functions
+    //!	define SYNC variables and functions
     /***************************************************************/
 
     extern TPCANMsg syncMsg;
-
+    
+	//! Function to send a synchronization message in a TPCANMsg
     inline void sendSync() {
         TPCANMsg syncMsg;
         std::memset(&syncMsg, 0, sizeof(syncMsg));
@@ -797,15 +855,16 @@ namespace canopen{
     }
 
     /***************************************************************/
-    //		define NMT error control constants
+    //!		define NMT error control constants
     /***************************************************************/
-
+	
+	//! Declare the SDO key and the time interval for HEARTBEAT 
     const SDOkey HEARTBEAT(0x1017,0x0);
 
     const uint16_t HEARTBEAT_TIME = 1500;
 
     /***************************************************************/
-    //		Error Constants for Error Register
+    //!		Error Constants for Error Register
     /***************************************************************/
 
     static unsigned char const EMC_k_1001_GENERIC        = 0x01;
@@ -818,7 +877,7 @@ namespace canopen{
     static unsigned char const EMC_k_1001_MANUFACTURER   = 0x80;
 
     /***************************************************************/
-    //		define motor state constants
+    //!		define motor state constants
     /***************************************************************/
 
     const std::string MS_NOT_READY_TO_SWITCH_ON = "NOT_READY_TO_SWITCH_ON";
@@ -831,7 +890,7 @@ namespace canopen{
     const std::string MS_FAULT_REACTION_ACTIVE = "FAULT_REACTION_ACTIVE";
 
     /***************************************************************/
-    //		define SDO protocol constants and functions
+    //!		define SDO protocol constants and functions
     /***************************************************************/
 
     const SDOkey STATUSWORD(0x6041, 0x0);
@@ -869,7 +928,7 @@ namespace canopen{
     const SDOkey FAULT(0x605E, 0x0);
     const SDOkey MODES(0x6060, 0x0);
 
-    /* Constants for the PDO mapping */
+    /*! Constants for the PDO mapping */
     const int TPDO1_msg = 0x180;
     const int TPDO2_msg = 0x280;
     const int TPDO3_msg = 0x380;
@@ -883,18 +942,19 @@ namespace canopen{
     const int TSDO = 0x580;
     const int RSDO = 0x600;
 
-    //TPDO PARAMETERS
+    //! TPDO PARAMETERS
     const SDOkey TPDO(0x1800, 0x0);
 
-    //RPDO PARAMETERS
+    //! RPDO PARAMETERS
     const SDOkey RPDO(0x1400, 0x0);
 
-    //TPDO MAPPING
+    //! TPDO MAPPING
     const SDOkey TPDO_map(0x1A00, 0x0);
 
-    //RPDO MAPPING
+    //! RPDO MAPPING
     const SDOkey RPDO_map(0x1600, 0x0);
 
+	//! Declaring constants for Modes of operation
     const uint16_t CONTROLWORD_SHUTDOWN = 6;
     const uint16_t CONTROLWORD_QUICKSTOP = 2;
     const uint16_t CONTROLWORD_SWITCH_ON = 7;
@@ -938,7 +998,7 @@ namespace canopen{
     void sendSDO(uint8_t CANid, SDOkey sdo, uint8_t value);
 
     /***************************************************************/
-    //		define PDO protocol functions
+    //!		define PDO protocol functions
     /***************************************************************/
 
     void initDeviceManagerThread(std::function<void ()> const& deviceManager);
@@ -953,7 +1013,7 @@ namespace canopen{
     void defaultEMCY_incoming(uint16_t CANid, const TPCANRdMsg m);
 
     /***************************************************************/
-    //		define functions for receiving data
+    //!		define functions for receiving data
     /***************************************************************/
 
     void initListenerThread(std::function<void ()> const& listener);
