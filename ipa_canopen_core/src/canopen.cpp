@@ -157,7 +157,7 @@ void pre_init()
  * syncInterval is the syncinterval of the device */
 bool init(std::string deviceFile, std::chrono::milliseconds syncInterval)
 {
-	
+
     if(atFirstInit)
     {
 		//!If atFirstInit is already true, set it to false
@@ -598,11 +598,13 @@ void setMotorState(uint16_t CANid, std::string targetState)
             //!canopen::sendSDO(CANid, canopen::CONTROLWORD, canopen::CONTROLWORD_SHUTDOWN);
             canopen::controlPDO(CANid, canopen::CONTROLWORD_SHUTDOWN, 0x00);
         }
+
         if (devices[CANid].getMotorState() == MS_READY_TO_SWITCH_ON)
         {
             //!canopen::sendSDO(CANid, canopen::CONTROLWORD, canopen::CONTROLWORD_SWITCH_ON);
             canopen::controlPDO(CANid, canopen::CONTROLWORD_SWITCH_ON, 0x00);
         }
+
         if (devices[CANid].getMotorState() == MS_SWITCHED_ON)
         {
             //!canopen::sendSDO(CANid, canopen::CONTROLWORD, canopen::CONTROLWORD_ENABLE_OPERATION);
