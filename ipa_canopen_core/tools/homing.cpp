@@ -73,6 +73,7 @@ int main(int argc, char *argv[]) {
     std::string deviceFile = std::string(argv[1]);
     uint16_t CANid = std::stoi(std::string(argv[2]));
     canopen::baudRate = std::string(argv[3]);
+    canopen::syncInterval = std::chrono::milliseconds(static_cast<int>(10.0));
     // configure CANopen device objects and custom incoming and outgoing PDOs:
     if (!canopen::openConnection(deviceFile,canopen::baudRate)){
         std::cout << "Cannot open CAN device; aborting." << std::endl;
@@ -83,11 +84,27 @@ int main(int argc, char *argv[]) {
     }
 
     canopen::devices[ CANid ] = canopen::Device(CANid);
+<<<<<<< HEAD
     canopen::syncInterval = std::chrono::milliseconds(static_cast<int>(10.0));
 
     canopen::incomingPDOHandlers[ 0x180 + CANid ] = [CANid](const TPCANRdMsg m) { canopen::defaultPDO_incoming_status( CANid, m ); };
     canopen::incomingPDOHandlers[ 0x480 + CANid ] = [CANid](const TPCANRdMsg m) { canopen::defaultPDO_incoming_pos( CANid, m ); };
     canopen::sendPos = canopen::defaultPDOOutgoing_interpolated;
+=======
+    
+    canopen::incomingPDOHandlers[ 0x180 + CANid ] = [CANid](const TPCANRdMsg m) { canopen::defaultPDO_incoming_status( CANid, m ); };
+    canopen::incomingPDOHandlers[ 0x480 + CANid ] = [CANid](const TPCANRdMsg m) { canopen::defaultPDO_incoming_pos( CANid, m ); };
+    canopen::sendPos = canopen::defaultPDOOutgoing_interpolated;
+
+    std::string chainName = "test_chain";
+    std::vector <uint8_t> ids;
+    ids.push_back(CANid);
+    std::vector <std::string> j_names;
+    j_names.push_back("joint_1");
+    canopen::deviceGroups[ chainName ] = canopen::DeviceGroup(ids, j_names);
+
+    canopen::init(deviceFile, canopen::syncInterval);
+>>>>>>> origin
 
     std::string chainName = "test_chain";
     std::vector <uint8_t> ids;
