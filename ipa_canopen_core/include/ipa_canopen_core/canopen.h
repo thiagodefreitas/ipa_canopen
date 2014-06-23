@@ -77,6 +77,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include "schunkErrors.h"
+#include <unordered_map>
 
 namespace canopen{
 	//! syncInterval and baudRate Can be used in other files as well 
@@ -212,7 +213,11 @@ namespace canopen{
                 motorState_("START_UP"),
                 initialized_(false),
                 nmt_init_(false) {};
+<<<<<<< HEAD
 
+=======
+			
+>>>>>>> origin
 			/*!Constructor for class Device which initialises the CANid, device name, group name, file name,conversion factor and offset values of the Device 
 			  with the values passed others to the default values*/
             Device(uint16_t CANid, std::string name, std::string group, std::string bus, double conversion_factor, double offsets):
@@ -631,8 +636,12 @@ namespace canopen{
             DeviceGroup(std::vector<uint8_t> CANids, std::vector<std::string> names):
                 CANids_(CANids),
                 names_(names),
+<<<<<<< HEAD
                 initialized_(false),
                 atFirstInit_(true) {};
+=======
+                initialized_(false) {};
+>>>>>>> origin
 
 			//!Getter function for getting the CANids
 			/* The function takes no parameters and returns the CANids of the devices*/
@@ -655,6 +664,7 @@ namespace canopen{
                 return initialized_;
             }
 
+<<<<<<< HEAD
             bool getFirstInit()
             {
                 return atFirstInit_;
@@ -665,11 +675,16 @@ namespace canopen{
                 initialized_ = initialized;
             }
 
+=======
+>>>>>>> origin
 			//!Defining various member functions of the class DeviceGroup
 			
 			//!Function to get the actual position of the devices in the Device group
 			/*! Function take no parameters and it returns the actual position for all devices in a group*/
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin
             std::vector<double> getActualPos() {
                     std::vector<double> actualPos;
                     for (uint8_t CANid : CANids_)
@@ -747,6 +762,7 @@ namespace canopen{
     void errorword_incoming(uint8_t CANid, BYTE data[8]);
     void manufacturer_incoming(uint8_t CANid, BYTE data[8]);
 
+<<<<<<< HEAD
     extern std::map<std::string, DeviceGroup> deviceGroups;	//! DeviceGroup name -> DeviceGroup object
     extern std::vector<std::thread> managerThreads;
     
@@ -757,6 +773,14 @@ namespace canopen{
     extern int initTrials;
     
 	//! Defining various maps that map the SDO key to incoming data handlers and CANids to incoming PDO handlers and incoming emergency handlers
+=======
+	
+    extern std::map<std::string, DeviceGroup> deviceGroups;	//! DeviceGroup name -> DeviceGroup object
+    //! Create an instance h of HANDLE with which various libpcan functions can be used
+    extern HANDLE h;
+    
+    //! Defining various maps that map the SDO key to incoming data handlers and CANids to incoming PDO handlers and incoming emergency handlers
+>>>>>>> origin
     extern std::map<SDOkey, std::function<void (uint8_t CANid, BYTE data[8])> > incomingDataHandlers;
     extern std::map<uint16_t, std::function<void (const TPCANRdMsg m)> > incomingPDOHandlers;
     extern std::map<uint16_t, std::function<void (const TPCANRdMsg m)> > incomingEMCYHandlers;
@@ -773,6 +797,7 @@ namespace canopen{
     /***************************************************************/
     //!	define get errors functions
     /***************************************************************/
+<<<<<<< HEAD
 	//!Make a RPDO mapping and enable it
     void makeRPDOMapping(std::string chainName,int object, std::vector<std::string> registers, std::vector<int> sizes, u_int8_t sync_type);
     void disableRPDO(std::string chainName, int object);
@@ -791,6 +816,27 @@ namespace canopen{
 	//!Confirm that the PDO mapping was changed
     void pdoChanged(std::string chainName);
     
+=======
+    
+    //!Make a RPDO mapping and enable it
+    void makeRPDOMapping(int object, std::vector<std::string> registers, std::vector<int> sizes, u_int8_t sync_type);
+    void disableRPDO(int object);
+    void clearRPDOMapping(int object);
+    void enableRPDO(int object);
+	
+	//!Function to set the default values of Profile velocity, Max. Profile velocity,Profile acceleration,Max. Acceleration, Max. Deceleration and End velocity
+    void setObjects();
+
+	//!Make a TPDO mapping and enable it
+    void makeTPDOMapping(int object, std::vector<std::string> registers, std::vector<int> sizes, u_int8_t sync_type);
+    void disableTPDO(int object);
+    void clearTPDOMapping(int object);
+    void enableTPDO(int object);
+
+	//!Confirm that the PDO mapping was changed
+    void pdoChanged();
+	
+>>>>>>> origin
 	//! Get the error word from the device with given CANid
     void getErrors(uint16_t CANid);
     std::vector<char> obtainManSWVersion(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
@@ -799,7 +845,10 @@ namespace canopen{
     std::vector<uint16_t> obtainVendorID(uint16_t CANid);
     uint16_t obtainRevNr(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
     std::vector<uint16_t> obtainProdCode(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
+<<<<<<< HEAD
     
+=======
+>>>>>>> origin
     //! Declaration of functions to read the error register and the manufacturer specific error registers
     void readErrorsRegister(uint16_t CANid, std::shared_ptr<TPCANRdMsg> m);
     void readManErrReg(uint16_t CANid);
@@ -850,6 +899,12 @@ namespace canopen{
     const uint8_t NMT_RESET_NODE = 0x81;
     const uint8_t NMT_RESET_COMMUNICATION = 0x82;
 
+	//! Define a TPCANMsg called NMTmsg for handling Network Management Functions
+	/*! TPCANMsg has the following messages 
+	    BYTE 	DATA [8]
+		DWORD 	ID
+		BYTE 	LEN
+		BYTE 	MSGTYPE*/
     extern TPCANMsg NMTmsg;
 	
 	//! Inline function to send the network management command in a TPCANMsg to the device with specific CANid

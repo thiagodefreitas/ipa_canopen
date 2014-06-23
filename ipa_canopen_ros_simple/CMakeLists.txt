@@ -1,18 +1,4 @@
-<<<<<<< HEAD
-cmake_minimum_required(VERSION 2.8.3)
-project(ipa_canopen_ros)
-
-find_package(catkin REQUIRED COMPONENTS roscpp brics_actuator ipa_canopen_core urdf sensor_msgs control_msgs libpcan rospy diagnostic_msgs cob_srvs std_msgs)
-
-#######################################
-## Declare ROS messages and services ##
-#######################################
-
-#list( APPEND CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS} -g -ftest-coverage -fprofile-arcs")
-#set(CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS} -g -ftest-coverage -fprofile-arcs")
-=======
-cmake_minimum_required(VERSION 2.4.6)
->>>>>>> origin
+cmake_minimum_required(VERSION 2.6)
 
 if(CMAKE_COMPILER_IS_GNUCXX)
    execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpversion OUTPUT_VARIABLE GCC_VERSION)
@@ -29,34 +15,6 @@ else(CMAKE_COMPILER_IS_GNUCXX)
    add_definitions("-std=c++0x")
 endif(CMAKE_COMPILER_IS_GNUCXX)
 
-<<<<<<< HEAD
-###################################
-## catkin specific configuration ##
-###################################
-
-catkin_package(
-    DEPENDS #
-    CATKIN_DEPENDS roscpp brics_actuator ipa_canopen_core sensor_msgs control_msgs libpcan rospy diagnostic_msgs cob_srvs std_msgs
-    INCLUDE_DIRS # TODO include
-    LIBRARIES # TODO
-)
-
-include_directories(include ${catkin_INCLUDE_DIRS})
-
-add_executable(${PROJECT_NAME} src/ipa_canopen_ros.cpp src/JointLimits.cpp)
-
-target_link_libraries(${PROJECT_NAME} boost_system pthread ${catkin_LIBRARIES})
-
-install(DIRECTORY include/${PROJECT_NAME}/
-  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
-  FILES_MATCHING PATTERN "*.h"
-)
-
-install(TARGETS ${PROJECT_NAME}
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
-=======
 include($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
 
 # Set the build type.  Options are:
@@ -69,13 +27,21 @@ include($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
 
 rosbuild_init()
 
+#add dynamic reconfigure api
+rosbuild_find_ros_package(dynamic_reconfigure)
+include(${dynamic_reconfigure_PACKAGE_PATH}/cmake/cfgbuild.cmake)
+gencfg()
+
 #set the default path for built executables to the "bin" directory
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 #set the default path for built libraries to the "lib" directory
 set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 
+INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/common/include)
+INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/common/src)
+
 #uncomment if you have defined messages
-rosbuild_genmsg()
+#rosbuild_genmsg()
 #uncomment if you have defined services
 #rosbuild_gensrv()
 
@@ -85,10 +51,11 @@ rosbuild_genmsg()
 #rosbuild_add_boost_directories()
 #rosbuild_link_boost(${PROJECT_NAME} thread)
 #rosbuild_add_executable(example examples/example.cpp)
+#target_link_libraries(example ${PROJECT_NAME})
 
+# for every node that is executable we have to generate a line like:
+rosbuild_add_executable(canopen_ros ros/src/canopen_ros_ros.cpp) 
+
+# protected region user Cmake macros on begin #
 #list( APPEND CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS} -g -ftest-coverage -fprofile-arcs")
-
-include_directories(include)
-rosbuild_add_executable(canopen_ros src/canopen_ros.cpp src/JointLimits.cpp)
-target_link_libraries(canopen_ros boost_system pthread ipa_canopen_core pcan)
->>>>>>> origin
+# protected region user Cmake macros end #
